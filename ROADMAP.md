@@ -3757,10 +3757,42 @@ of the repo on the Pi.
      `01-build-kernel.sh` installs them in its step 1 — but the build starts with
      an apt run rather than compiling immediately.
 10. ~~Order the RTL-SDR Blog v4 + dipole antenna kit~~ ✅ **arrived 2026-09-01.**
-    Tests 2 and 3 and step 12 are no longer hardware-blocked. Nothing has been
-    plugged in yet, and the first thing it should meet is `rtl_test -t`: `02c`'s
-    DVB-T blacklist only takes effect after a reboot or a replug, and a dongle
-    claimed by `dvb_usb_rtl28xxu` reports zero lost samples all day long.
+    Tests 2 and 3 and step 12 are no longer hardware-blocked. The first thing it
+    should meet is `rtl_test -t`: `02c`'s DVB-T blacklist only takes effect after
+    a reboot or a replug, and a dongle claimed by `dvb_usb_rtl28xxu` reports zero
+    lost samples all day long.
+
+    ✅ **`02c` has now run on pi-server's live system — 2026-09-04.** It had only
+    ever executed inside the image-build chroot, which says nothing about the box
+    you actually benchmark on: `rtl_test` was absent and
+    `/etc/modprobe.d/blacklist-rtlsdr.conf` did not exist. All six steps clean.
+    `rtl_test`, `rtl_433`, `dump1090` and `predict` are on the PATH, all four pins
+    verified, and `/usr/local/share/molniya/build-manifest.txt` records them.
+    `rtl_test` links `/usr/local/lib/librtlsdr.so.0` — the blog fork, which is the
+    one that matters, since stock osmocom librtlsdr cannot drive a v4.
+    `predict` built without its curses installer as designed, and `gpredict` was
+    skipped for want of a display, which is the headless rule working rather than
+    a gap.
+
+    **The install was deliberately done with the dongle unplugged**, so that the
+    first plug happens with the blacklist already in place. That turns the
+    reboot-or-replug requirement into a non-event instead of a debugging session.
+    Worth repeating on any box built from here.
+
+    ⏳ **Stopped here 2026-09-05: the dongle is still unplugged.** Resume by
+    plugging it into a USB port on pi-server — the one physical step — then
+    `lsusb | grep -i 2838`, `lsmod | grep dvb` (must be empty), and `rtl_test -t`
+    (expect `Rafael Micro R828D`; an `R820T` means it is not a v4). Use the same
+    USB port for configs A, B and C: swapping ports mid-matrix adds a variable to
+    a comparison meant to isolate the kernel.
+
+    **Test 2 does not need an antenna, a window or a sky.** It counts samples the
+    USB and kernel path drops, and `rtl_test` pulls at the requested rate whatever
+    the antenna is hearing, so RF conditions cannot move the number. Recorded
+    because the harness's own "leave it undisturbed" note reads as if reception
+    matters: the hazard is the *USB* connector, where a nudge causes a
+    re-enumeration that reads as a burst of lost samples. Antenna and sky are step
+    12's problem, not Test 2's.
 11. ~~Build `03-satcom-stack.sh` — pinned from line one~~ ✅ **written and
     linted**, pinned from line one. Still needs its first run on pi-server;
     nothing in it has been executed.
