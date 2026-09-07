@@ -323,6 +323,17 @@ run_one() {
         echo "# thermal before: $therm_before"
         echo "# kernel:     $(uname -r)"
         echo "# cmdline:    $(cat /proc/cmdline)"
+        # Radio state is not incidental. Wifi interrupts and softirq work are
+        # exactly what PREEMPT_RT and nohz_full reschedule, so a radio that is
+        # quiet for one configuration and live for another confounds the very
+        # comparison this sweep exists to make -- the same hazard as moving the
+        # dongle to a different USB port mid-matrix. Recorded from 2026-09-07,
+        # after config C was swept without it and its state became unrecoverable.
+        if command -v rfkill > /dev/null 2>&1; then
+            echo "# rfkill:     $(rfkill list 2>/dev/null | tr '\n' ' ' | tr -s ' ')"
+        else
+            echo "# rfkill:     unknown (rfkill not installed)"
+        fi
         echo "# date:       $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
         echo "#"
     } > "$raw"

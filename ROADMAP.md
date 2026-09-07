@@ -4002,6 +4002,33 @@ of the repo on the Pi.
     before running B or the rows will not line up:
     `mv results/sdr-summary.tsv results/sdr-summary.C-preppm.tsv`.
 
+    🔴 **OUTSTANDING — wifi is `rfkill`-blocked on pi-server and must be
+    unblocked when the Test 2 matrix is finished.** Noted 2026-09-07 because
+    "we'll turn it off eventually" is how a radio stays blocked for six months on
+    a box that is otherwise reached over the LAN.
+
+        sudo rfkill unblock wifi && rfkill list wifi
+
+    **Why it was blocked matters less than keeping it constant.** It buys nothing
+    for Test 2 on RF grounds — `rtl_test` pulls at the requested rate whatever the
+    antenna hears, so 2.4 GHz noise cannot move the number. What it does change is
+    **interrupt and softirq load, which is exactly what `PREEMPT_RT` and
+    `nohz_full` reschedule.** A radio quiet for one configuration and live for
+    another confounds the comparison the sweep exists to make — the same hazard as
+    moving the dongle to a different USB port mid-matrix. Whatever state B and A
+    run in, they must both run in it.
+
+    ⚠️ **Config C's radio state is unrecoverable.** The raw headers recorded
+    governor, thermal, kernel and cmdline but not the radio, so there is no way to
+    say after the fact whether wifi was live during the 2026-09-07 sweep. If B and
+    A are run blocked and C was not, `C − B` is measuring two changes. Cheapest
+    resolution if it comes to it: re-run C at the end under the same radio state
+    as B and A, which also gives a repeat of the one configuration measured with
+    the old parser.
+
+    ✅ **Fixed forward:** `run_one` now writes `rfkill list` into every raw header,
+    beside the cmdline. B and A will carry provenance C does not.
+
     **The 600 s duration is now doing real work again.** Under the old parser a
     30 s run and a 600 s run produced the same number, so `DURATION` was measuring
     nothing. Do not shorten it on the strength of the old results.
