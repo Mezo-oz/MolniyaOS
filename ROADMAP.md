@@ -2456,7 +2456,7 @@ boot partition).
 
   So two of the checks named above split rather than transfer:
   - *SDR enumerates on USB* → `rtl_test` **installed** is CRITICAL; a **device
-    answering** is ADVISORY. Test 2 has been hardware-blocked for weeks: that is
+    answering** is ADVISORY. Test 2 was hardware-blocked for weeks: that is
     a healthy box with no dongle in it, and it must not revert.
   - *TLE timer loaded and not failed* → the **unit files shipping** is CRITICAL;
     an instance being enabled, or its last run having failed, is ADVISORY. 4d's
@@ -3708,7 +3708,8 @@ of the repo on the Pi.
    **Budget it as a half-day, not an evening.** ~35 min per configuration is the
    harness's own figure, so ~105 min of runtime, plus two reboots and thermal
    cool-down between runs, which the gate will enforce whether or not it is planned
-   for. Test 1 needs no dongle; Test 2 waits on the RTL-SDR v4.
+   for. Test 1 needs no dongle; Test 2's dongle is plugged in and verified as
+   of 2026-09-06.
 
    **Bench box = pi-server** (see Hardware Topology). No reboot-window constraint:
    swaps, crashes and reflashes are expected there — *once gate 0 below is met.*
@@ -3878,12 +3879,132 @@ of the repo on the Pi.
     reboot-or-replug requirement into a non-event instead of a debugging session.
     Worth repeating on any box built from here.
 
-    ⏳ **Stopped here 2026-09-05: the dongle is still unplugged.** Resume by
-    plugging it into a USB port on pi-server — the one physical step — then
-    `lsusb | grep -i 2838`, `lsmod | grep dvb` (must be empty), and `rtl_test -t`
-    (expect `Rafael Micro R828D`; an `R820T` means it is not a v4). Use the same
-    USB port for configs A, B and C: swapping ports mid-matrix adds a variable to
-    a comparison meant to isolate the kernel.
+    ✅ **Plugged in and verified 2026-09-06 — the dongle is live and unclaimed.**
+    `lsusb` shows `0bda:2838` on bus 003; **`lsmod | grep dvb` is empty**, so the
+    `02c` blacklist did its job and installing with the dongle unplugged saved the
+    reboot it was meant to save. `rtl_test -t` reports `RTLSDRBlog, Blog V4`,
+    `Rafael Micro R828D` and a 29-value gain table — a genuine v4, not an R820T
+    clone. Use this same USB port for configs A, B and C: swapping ports
+    mid-matrix adds a variable to a comparison meant to isolate the kernel.
+
+    **`-t` ends in `No E4000 tuner found, aborting.` and that is the pass, not a
+    failure.** `-t` is the *Elonics E4000* tuner benchmark specifically; on an
+    R828D it has nothing to measure and bails. Device open, tuner probe and gain
+    enumeration all completed before it stopped, which is the whole of what this
+    check was for. Recorded because "aborting" reads like a fault and will look
+    like one again in six months.
+
+    ✅ **`run-sdr-bench.sh` has now touched hardware — smoke test 2026-09-07,
+    config C, `MOLNIYA_BENCH_OUT=/tmp/sdr-smoke --quick`.** Both rows completed:
+    30 s at 2.4 MS/s, idle and load, zero lost bytes, governor `performance`,
+    59.5 °C start / 60.6 °C and 77.7 °C end, both `clean`.
+
+    ⚠️ **Two zeros did not validate the parser, and saying so was the point of
+    the smoke test.** `sum_lost_bytes` prints `total + 0`, so a file with no
+    matching line and a file whose wording the pattern misses are the same
+    output. `grep -c "lost at least"` on both raws returned **0** — the awk
+    branch had never executed. **Validated separately** by forcing loss at the
+    top of the sweep:
+
+        timeout --signal=INT 30 rtl_test -s 3200000 > parsecheck.txt 2>&1 || true
+
+    One `lost at least` line, and the function body run over it returns **188
+    bytes = 94 samples**. The field-index loop is correct and the harness can be
+    trusted to report loss. This also confirms line 52's reason for including
+    3.2 MS/s: it drops samples where 2.4 MS/s does not. **A clean row is only
+    evidence if something in the same session produced a dirty one.**
+
+    ⚠️ **`thermal_c` is the END temperature, not the gated start.** The gate
+    gives a common ≤65 °C start; the column records `temp_after`. The load row
+    climbed **+18.2 °C in 30 seconds** (59.5 → 77.7). The real load runs are
+    **600 s, 20× longer**, and the Pi 5 soft-throttles at 80 °C, so expect the
+    full-length load rows to come back `THROTTLED`. That is the harness working —
+    flagged, not discarded, reader decides — but budget for load rows that cannot
+    be cleanly attributed to the kernel. The idle row's 60.6 °C shows the gate has
+    headroom.
+
+    **The since-boot throttle bits saturate as the sweep runs, and flagging gets
+    weaker as they do.** At smoke-test time every run already read
+    `throttled=0x80000` (`softtemp-since-boot`) before it started, so bit 19 could
+    never appear as newly-set and `throttling_occurred`'s sticky diff was already
+    dead weight for soft temperature. **Bits 17 and 18 joined it during the first
+    real sweep** — the 1.024 MS/s load row took the box to 84.2 °C and `0xe0000`
+    (`freq-capped`, `throttled`, `softtemp`), leaving only bit 16 (undervolt)
+    virgin. That row was caught twice, by the sticky diff *and* the sampler; every
+    later row in the same boot can only be caught by the sampler and the
+    end-of-run live bits (`vb & 0xF`), because `newbits` is now permanently 0.
+
+    That is the blind spot `thermal-state.sh:106-111` says the sampler was written
+    for, so detection still works — but two consequences are easy to misread:
+
+    - A `clean` verdict late in a boot is a **sampler** result, not a diff result,
+      and a throttle shorter than the 5 s sampling interval is missable. Irrelevant
+      under 600 s of sustained `stress-ng`; not irrelevant in general.
+    - **Each configuration reboots into a clean sticky slate, and C did not.**
+      Whichever config runs first in a boot gets the strongest flagging. A
+      difference in *how* rows were flagged across A, B and C is an artifact of
+      boot order, never a property of the kernel.
+
+    ✅ **Configuration C swept in full, 2026-09-07** — 8 rows, `DURATION=600`,
+    governor `performance` throughout.
+
+    | rate (S/s) | load | lost bytes | lost samples | end °C | verdict |
+    |---|---|---|---|---|---|
+    | 1024000 | idle | 0 | 0 | 61.1 | clean |
+    | 1024000 | load | 8 | 4 | 81.0 | THROTTLED |
+    | 2048000 | idle | 0 | 0 | 61.1 | clean |
+    | 2048000 | load | 0 | 0 | 81.5 | THROTTLED |
+    | 2400000 | idle | 0 | 0 | 64.5 | clean |
+    | 2400000 | load | 0 | 0 | 82.6 | THROTTLED |
+    | 3200000 | idle | 188 | 94 | 63.9 | clean |
+    | 3200000 | load | 136 | 68 | 82.0 | THROTTLED |
+
+    **All four load rows throttled**, as the 30 s smoke test predicted. The idle
+    rows all ran 61–64.5 °C and stayed clean, so the gate has headroom and the idle
+    half is the publishable comparison.
+
+    ✅ **RESOLVED 2026-09-07 — it was a teardown artifact, and the harness was
+    parsing the wrong line.** `tail -8` on the 3.2 MS/s idle raw settles it:
+
+        User cancel, exiting...
+        Samples per million lost (minimum): 0
+        lost at least 188 bytes
+
+    The gap line comes **after** the cancel marker. `timeout --signal=INT` cancels
+    the async read and rtl_test reports the discarded in-flight USB buffer as lost.
+    It is teardown, not loss — which is why it scales with sample rate (8 bytes at
+    1.024 MS/s, 188 at 3.2) and is identical for a 30 s and a 600 s run.
+
+    **rtl_test excludes it from its own statistics, one line above: `Samples per
+    million lost (minimum): 0`.** The harness was summing a figure rtl_test itself
+    discounts while ignoring the aggregate rtl_test publishes. Every non-zero cell
+    in the config C table above is that artifact.
+
+    **Config C's real result is zero measured sample loss at every rate, idle and
+    load, including 3.2 MS/s** — recovered from the saved raws without re-running:
+
+        grep -H "Samples per million lost" results/configC-sdr-*.txt
+
+    That is the argument for keeping raw files rather than only summary rows: a
+    parsing bug found after the fact cost a `grep`, not another 2.5 hours.
+
+    **Fix applied to `run-sdr-bench.sh`:** `lost_ppm()` reads rtl_test's own
+    normalised metric and is now the primary column (`lost_ppm`, first of the loss
+    columns); `sum_lost_bytes()` stops counting at `CANCEL_MARKER` so in-run gaps
+    are still visible without the teardown flush. `lost_ppm` prints `unknown`, not
+    `0`, when the line is absent — a missing metric and a measured zero are
+    different facts, which is the same lesson the smoke test taught. Verified
+    against a fixture reproducing the observed tail: ppm `0`, in-run bytes `512`
+    from a synthetic mid-run gap, teardown `188` correctly excluded, and `unknown`
+    on a file with no metric.
+
+    ⚠️ **`sdr-summary.tsv` gained a column (9 → 10).** Move the config C file aside
+    before running B or the rows will not line up:
+    `mv results/sdr-summary.tsv results/sdr-summary.C-preppm.tsv`.
+
+    **The 600 s duration is now doing real work again.** Under the old parser a
+    30 s run and a 600 s run produced the same number, so `DURATION` was measuring
+    nothing. Do not shorten it on the strength of the old results.
 
     **Test 2 does not need an antenna, a window or a sky.** It counts samples the
     USB and kernel path drops, and `rtl_test` pulls at the requested rate whatever

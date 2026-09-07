@@ -56,12 +56,35 @@ result. Never report `C − A`** — it conflates two independent changes and cr
 the total to whichever one is being argued for.
 
 Switching A ↔ B/C: comment or uncomment the two directives in the MolniyaOS block of
-`/boot/firmware/config.txt`. Switching B ↔ C: change `NOHZ_FULL_CPUS` in
-`kernel/install-kernel.sh` and re-run it, or edit `kosmos/cmdline.txt` on the boot
-partition directly — the `os_prefix` directory on the installed box is still
-`/boot/firmware/kosmos/`, and renaming it means editing `config.txt` in the same
-breath or the box does not boot. It becomes `molniya/` at the next kernel
-install, which rewrites both anyway.
+`/boot/firmware/config.txt`.
+
+**Switching B ↔ C: edit `kosmos/cmdline.txt` on the boot partition directly.** B and
+C are the *same kernel* — only the command line differs — so nothing needs
+reinstalling:
+
+```
+sudo cp /boot/firmware/kosmos/cmdline.txt ~/cmdline.txt.bak
+# C -> B: delete the trailing "nohz_full=1-3 rcu_nocbs=1-3"
+# B -> C: append it back
+# ONE line, always: a newline in this file means the box does not boot
+sudo reboot
+```
+
+Then confirm with **both** `./detect-config.sh` and `grep -o 'nohz_full=[^ ]*'
+/proc/cmdline` — the detector exits 1 when it guessed rather than detected.
+
+⚠️ **`sudo NOHZ_FULL_CPUS="" bash install-kernel.sh` does not work from a repo
+clone**, and this file used to recommend it. The installer treats its own
+directory as the *package* directory (`SCRIPT_DIR`, line 105) and wants
+`boot/kernel-molniya.img`, `kernel-version` and `modules/lib/modules/<ver>/`
+beside it — build artifacts that are not committed. Run from `kernel/` in the
+repo it fails at the first check. It is the right tool when installing a kernel
+from its tarball; it is the wrong tool for flipping one cmdline token. Found
+2026-09-07 mid-benchmark.
+
+The `os_prefix` directory on the installed box is still `/boot/firmware/kosmos/`,
+and renaming it means editing `config.txt` in the same breath or the box does not
+boot. It becomes `molniya/` at the next kernel install, which rewrites both anyway.
 
 ### Bench box
 

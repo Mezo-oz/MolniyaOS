@@ -26,9 +26,17 @@
 # same reason as Test 1 — ondemand ramp latency would otherwise be folded into
 # whichever kernel happened to be measured cold.
 #
-# NOT YET RUN: this harness has been linted and reviewed but never executed
-# against hardware. The rtl_test output parsing in particular is written against
-# its documented output format and should be checked on the first real run.
+# SMOKE-TESTED 2026-09-07, config C, --quick into /tmp/sdr-smoke. Both rows
+# completed and the rtl_test parsing is VALIDATED -- but not by that run. Two
+# clean 30 s rows at 2.4 MS/s reported zero loss, and `grep -c "lost at least"`
+# on both raws returned 0, meaning sum_lost_bytes' awk branch had never executed:
+# a file with no matching line and a file whose wording the pattern misses are
+# the same output. It was validated by forcing loss at 3.2 MS/s --
+#   timeout --signal=INT 30 rtl_test -s 3200000 > parsecheck.txt 2>&1 || true
+# -- which produced one gap line and summed to 188 bytes = 94 samples. A clean
+# row is only evidence if something in the same session produced a dirty one.
+# The full DURATION=600 sweep has still never been run.
+#
 # Smoke-test with --quick AND a scratch directory, never the real results dir:
 #   MOLNIYA_BENCH_OUT=/tmp/sdr-smoke ./run-sdr-bench.sh --quick
 # Raw files overwrite while sdr-summary.tsv appends, so a --quick pass into the
@@ -227,13 +235,46 @@ stop_load() {
 
 # --- Result parsing ---------------------------------------------------------
 
-# rtl_test reports each gap as a line containing "lost at least N bytes". Sum
-# them. A run with no such line lost nothing, which awk reports as 0 rather than
-# as empty -- an empty cell in a results table is ambiguous in a way that zero
-# is not.
-sum_lost_bytes() {
+# rtl_test publishes its OWN aggregate -- "Samples per million lost (minimum): N"
+# -- and that is the reportable figure. It is normalised, so it is comparable
+# across rates and durations in a way an absolute byte count is not.
+#
+# WHY THIS CHANGED, found 2026-09-07 after the first full sweep: rtl_test emits a
+# final "lost at least N bytes" AFTER "User cancel, exiting...", when timeout's
+# SIGINT cancels the async read and the in-flight USB buffer is discarded. That
+# chunk is teardown, not loss. It scales with sample rate and is IDENTICAL for a
+# 30 s and a 600 s run -- 188 bytes at 3.2 MS/s in both -- so summing it measured
+# how this harness stops rtl_test, not what the kernel dropped. rtl_test excludes
+# it from its own statistics: the same file that ends "lost at least 188 bytes"
+# says "Samples per million lost (minimum): 0" one line above it.
+#
+# Gap bytes are still summed, because a mid-run gap is a real event worth seeing,
+# but only those before the cancel marker.
+
+CANCEL_MARKER='User cancel, exiting'
+
+# Samples per million lost, per rtl_test's own summary. Prints "unknown" when the
+# line is absent rather than 0: a missing metric and a measured zero are different
+# facts and only one of them is a result. That distinction is the whole reason
+# this function exists -- see the smoke test, where two zeros meant "never parsed".
+lost_ppm() {
     awk '
-        /lost at least/ {
+        /Samples per million lost/ {
+            for (i = NF; i >= 1; i--)
+                if ($i ~ /^[0-9]+$/) { v = $i; found = 1; break }
+        }
+        END { print (found ? v : "unknown") }
+    ' "$1"
+}
+
+# Gap bytes seen DURING the run. Counting stops at the cancel marker so the
+# teardown flush is excluded. A run with no such line lost nothing, which awk
+# reports as 0 rather than as empty -- an empty cell in a results table is
+# ambiguous in a way that zero is not.
+sum_lost_bytes() {
+    awk -v marker="$CANCEL_MARKER" '
+        index($0, marker) { done = 1 }
+        !done && /lost at least/ {
             for (i = 1; i <= NF; i++)
                 if ($i == "least") { total += $(i+1) + 0; break }
         }
@@ -318,13 +359,15 @@ run_one() {
     fi
     echo "      peak:   $peak"
 
-    local bytes samples
+    local bytes samples ppm
     bytes=$(sum_lost_bytes "$raw")
     samples=$(( bytes / 2 ))
+    ppm=$(lost_ppm "$raw")
 
-    printf '      lost %s bytes = %s samples\n' "$bytes" "$samples"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$CONFIG" "$rate" "$load" "$DURATION" "$bytes" "$samples" "$gov" \
+    printf '      lost %s ppm (rtl_test); %s bytes = %s samples in-run\n' \
+        "$ppm" "$bytes" "$samples"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$CONFIG" "$rate" "$load" "$DURATION" "$ppm" "$bytes" "$samples" "$gov" \
         "$temp_after" "$thermal_ok" \
         >> "$OUT_DIR/sdr-summary.tsv"
 }
@@ -377,7 +420,7 @@ case "${GO,,}" in
 esac
 
 if [ ! -f "$OUT_DIR/sdr-summary.tsv" ]; then
-    printf 'config\trate\tload\tseconds\tlost_bytes\tlost_samples\tgovernor\tthermal_c\tverdict\n' \
+    printf 'config\trate\tload\tseconds\tlost_ppm\tlost_bytes\tlost_samples\tgovernor\tthermal_c\tverdict\n' \
         > "$OUT_DIR/sdr-summary.tsv"
 fi
 
