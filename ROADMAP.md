@@ -1656,7 +1656,7 @@ recording because it failed in the safe direction — a *false alarm* on a good
 image. The same habit of building an expected value by string-splicing, applied
 one step further, is how a check ends up passing on a bad one.
 
-##### ✅ Decision: a pinned stock image. Not pi-gen, not debootstrap.
+##### ⚠️ Decision: a pinned stock image. Not pi-gen, not debootstrap. — *superseded 2026-09-06; read as "not yet", see the correction below*
 
 4d left this as "pi-gen vs debootstrap, to be decided in 4a". The answer is
 **neither** — the base is the official Raspberry Pi OS Lite image, taken as a
@@ -1695,6 +1695,105 @@ a live box in places — `systemctl`, `modprobe`, reboot advice — and will nee
 chroot-safe path. And Pi OS Lite's own first-boot resize (`init=…/firstboot`)
 **must** be disabled or it grows the root to fill the card and eats slot B;
 `layout.sh`'s cmdline emitter already omits it for that reason.
+
+##### ✅ Decision 2026-09-06: drop the Pi OS base — but only after the current image is proven
+
+**Supersedes the entry above**, which is now read as **"not yet"** rather than
+**"no"**. That entry stays for the record; this is the correction.
+
+MolniyaOS will replace its Raspberry Pi OS Lite base with a rootfs it builds
+itself — snapshot-pinned Debian trixie via `mmdebstrap`/`debootstrap`. It will
+**not** do so before the existing Pi OS-based image has booted on hardware and
+completed one real A/B update and rollback. The Pi **kernel fork** and the Pi
+**EEPROM bootloader / tryboot** mechanism are not part of this decoupling and
+stay: they are hardware, not Pi OS.
+
+**Why the three reasons above were weaker than written.** Re-examined
+2026-09-06; each is real but modest.
+
+1. *"Only the stock image can be pinned."* True against `deb.debian.org`, not in
+   general. `snapshot.debian.org` serves the archive frozen at a timestamp, so a
+   `debootstrap`/`mmdebstrap` run pointed at a dated snapshot is as pinnable as
+   the stock image — and pins the *inputs* rather than someone else's output,
+   which is the stronger form of Pillar 3.
+2. *"Pi OS carries load-bearing defaults."* It carries exactly two that 4d
+   depends on: `40-rpi-enable-watchdog.conf` (a two-line systemd drop-in) and
+   `/usr/bin/vcmailbox` (a small tool from `raspberrypi/utils`, whose kernel side
+   — `/dev/vcio` — is already in our own kernel). Both are cheap to supply
+   ourselves. Everything in `03a` comes from Debian main, not the Raspberry Pi
+   archive. Kernel, DTBs and overlays are already ours, and the Pi 5 has no
+   `start.elf` to source.
+3. *"The build host is already capable."* Still true, and unchanged by this
+   decision — a chroot into a debootstrap tree is the same operation as a chroot
+   into the stock image.
+
+**What Pi OS costs, seen from stage 2.** Most of that script exists to *undo* Pi
+OS — neutralise `userconfig.service`, strip the `resize` token, delete the `pi`
+account, remove two stock `6.18` module trees that could never load. A minimal
+base has none of that to undo, ships smaller (the root is at 82% of a 6 GiB slot
+and every byte ships twice), carries no third-party apt archive, and matches the
+identity section's "understand every layer" claim, which currently sits on top of
+a downloaded golden image.
+
+**The CA/keyring work is not a factor either way.** It signs RAUC bundles and is
+needed regardless of base. It was briefly counted as a cost of decoupling; it is
+not one.
+
+⚠️ **The one reason that holds is ordering.** The 2026-08-26 image has never
+booted. Every 4d mechanism — health check, mark-good, boot backend, slot identity
+— has been tested against fixtures only. Swapping the base now would change
+exactly the two things 4d depends on, watchdog arming and mailbox access,
+*before* the mechanism has been seen working once. A failed boot test would then
+be undiagnosable: base swap, or a 4d bug that was always there. Changing the fuel
+map and the plugs on the same day.
+
+**Sequence:**
+
+1. **Boot test** the existing artifact per the 4a protocol (after
+   `inject-keyring.sh`, so `rauc install` is exercisable). Want `get-primary` and
+   `get-current` both `A` on real hardware.
+2. **One real bundle install and one rollback** on hardware. This is the
+   known-good reference everything after is diffed against.
+3. **Write the `vcmailbox` replacement** — needed *before* the base swap, since
+   that is when the Pi OS copy goes away. Open `/dev/vcio`, build the mailbox
+   buffer, one `ioctl`, read the response. `#[repr(C)]`/struct layout, the pointer
+   handed across the kernel boundary, and the big-endian trap already met in
+   `/proc/device-tree`. ~80 lines.
+4. **Replace stages 1–2** with a snapshot-pinned Debian build. Stage 1 pins a
+   snapshot timestamp instead of an image digest; stage 2 stops undoing Pi OS and
+   starts supplying the watchdog drop-in and the mailbox tool. Stages 3–4,
+   `layout.sh`, `verify-image.sh` and all of 4d are unchanged — which is the test
+   of whether the seams were in the right place.
+5. **Re-verify.** `verify-image.sh` must assert the watchdog drop-in and the
+   mailbox tool, because both used to arrive for free and "something that arrives
+   for free can leave for free."
+
+**Language for the new code** (asked 2026-09-06):
+
+- **`vcmailbox` replacement:** Rust, and it is the better fit for the Rust track.
+  The lesson is the same in either language — a `#[repr(C)]` struct laid out to
+  match what the firmware expects, an `unsafe` ioctl at the kernel boundary,
+  endianness. Cost: a pinned Rust toolchain (`rust-toolchain.toml` +
+  `Cargo.lock`) enters the build, either compiled in the stage-2 chroot or
+  cross-built and shipped as a pinned binary. Either satisfies Pillar 3; decide
+  when stage 2 is rewritten.
+- **GNU Radio block** (the probe port, if Python can't keep up): GNU Radio has no
+  first-class Rust binding. Rust is reachable only as a Rust core behind a C ABI
+  wrapped by a thin C++ block, which makes the shim C++ anyway and puts cargo
+  inside a CMake build. If the port is ever needed, plain C++ is the path of least
+  friction; Rust-via-FFI is a project in its own right and not a shortcut.
+- **Kernel patch:** C. Rust-for-Linux on arm64 is not available in the
+  `rpi-6.12.y` tree this project is pinned to — arm64 Rust support landed
+  upstream after 6.12; confirm with `make LLVM=1 rustavailable` in the pinned tree
+  before assuming otherwise — and a patch to an existing C subsystem is C
+  regardless of what the tree supports. Fork the kernel repo the day there is a
+  patch to carry, not before: extension point, not scaffolding.
+
+**What this does not change.** The Pi kernel fork stays (`/dev/vcio`, RP1, PCIe
+live only there) — "building off the RPi fork is load-bearing, not incidental"
+still holds. The EEPROM bootloader, `autoboot.txt`, tryboot and `boot_count` stay;
+they are firmware. The 4d design, the A/B layout and the RAUC custom backend are
+untouched. The boot test venue and protocol are unchanged.
 
 ##### Builder stages
 
