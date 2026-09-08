@@ -476,31 +476,60 @@ connector reads as a kernel regression.
 
 ### Test 2 results
 
-Samples lost per 600 s run.
+Samples lost per 600 s run, as **ppm** (`Samples per million lost (minimum)`, from
+rtl_test's own summary). Absolute lost bytes were 0 in every filled cell too.
+
+⚠️ **These are not the numbers the harness printed on 2026-09-07.** Until
+`f144058` the parser summed rtl_test's teardown flush — the gap it reports *after*
+`User cancel, exiting...`, when SIGINT discards the in-flight USB buffer — and
+credited it as loss. C's raw rows read 188 and 136 bytes at 3.2 MS/s for that
+reason alone. C below is re-derived from its saved raws with the fixed parser, not
+re-measured; B and A were measured with it.
 
 | Rate (MS/s) | Load | A — stock | B — RT | C — RT + dynticks |
 |---|---|---|---|---|
-| 1.024 | idle | | | |
-| 1.024 | load | | | |
-| 2.048 | idle | | | |
-| 2.048 | load | | | |
-| 2.4 | idle | | | |
-| 2.4 | load | | | |
-| 3.2 | idle | | | |
-| 3.2 | load | | | |
+| 1.024 | idle | | 0 | 0 |
+| 1.024 | load | | 0 | 0 |
+| 2.048 | idle | | 0 | 0 |
+| 2.048 | load | | 0 | 0 |
+| 2.4 | idle | | 0 | 0 |
+| 2.4 | load | | 0 | 0 |
+| 3.2 | idle | | 0 | 0 |
+| 3.2 | load | | 0 | 0 |
+
+Every `load` row throttled on both configurations (80.4–82.6 °C); every `idle` row
+was clean at 60.6–64.5 °C. **The throttling did not cost a single sample**, which
+is a result in its own right: on this hardware a thermal throttle does not make
+the USB capture path miss its deadlines.
 
 ### Test 2 deltas
 
 | Rate (MS/s) | Load | B − A | C − B |
 |---|---|---|---|
-| 1.024 | idle | | |
-| 1.024 | load | | |
-| 2.048 | idle | | |
-| 2.048 | load | | |
-| 2.4 | idle | | |
-| 2.4 | load | | |
-| 3.2 | idle | | |
-| 3.2 | load | | |
+| 1.024 | idle | | 0 |
+| 1.024 | load | | 0 |
+| 2.048 | idle | | 0 |
+| 2.048 | load | | 0 |
+| 2.4 | idle | | 0 |
+| 2.4 | load | | 0 |
+| 3.2 | idle | | 0 |
+| 3.2 | load | | 0 |
+
+**`C − B` is zero everywhere: core isolation has no measurable effect on sample
+loss.** That is a real finding and it is consistent with Test 1, where `C − B` at
+idle was +5 µs — a small loss, not a win.
+
+⏳ **`B − A` therefore carries this entire test**, and A was still running when
+this table was written. Two outcomes, both worth publishing:
+
+- **A loses samples.** `PREEMPT_RT` eliminates drops the stock kernel cannot
+  avoid — the headline Test 2 was designed to produce.
+- **A is also zero.** Test 2 has no discriminating power on this hardware, and the
+  honest conclusion is that the Pi 5 + RTL-SDR v4 USB path is simply not the
+  bottleneck at ≤3.2 MS/s, not even throttled to 81 °C under `stress-ng --cpu 4
+  --io 2`. The RT case would then rest on Test 1's latency numbers alone.
+
+A negative result here is not a failed run, and should not be written up as one.
 
 ---
 

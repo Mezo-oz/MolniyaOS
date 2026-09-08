@@ -3946,19 +3946,49 @@ of the repo on the Pi.
       boot order, never a property of the kernel.
 
     ✅ **Configuration C swept in full, 2026-09-07** — 8 rows, `DURATION=600`,
-    governor `performance` throughout.
+    governor `performance` throughout. **"as printed" is what the harness said on
+    the night; "real" is the same raws re-parsed after the teardown bug below was
+    fixed.** Both kept, because the difference is the finding.
 
-    | rate (S/s) | load | lost bytes | lost samples | end °C | verdict |
-    |---|---|---|---|---|---|
-    | 1024000 | idle | 0 | 0 | 61.1 | clean |
-    | 1024000 | load | 8 | 4 | 81.0 | THROTTLED |
-    | 2048000 | idle | 0 | 0 | 61.1 | clean |
-    | 2048000 | load | 0 | 0 | 81.5 | THROTTLED |
-    | 2400000 | idle | 0 | 0 | 64.5 | clean |
-    | 2400000 | load | 0 | 0 | 82.6 | THROTTLED |
-    | 3200000 | idle | 188 | 94 | 63.9 | clean |
-    | 3200000 | load | 136 | 68 | 82.0 | THROTTLED |
+    | rate (S/s) | load | bytes as printed | real ppm | real bytes | end °C | verdict |
+    |---|---|---|---|---|---|---|
+    | 1024000 | idle | 0 | 0 | 0 | 61.1 | clean |
+    | 1024000 | load | 8 | 0 | 0 | 81.0 | THROTTLED |
+    | 2048000 | idle | 0 | 0 | 0 | 61.1 | clean |
+    | 2048000 | load | 0 | 0 | 0 | 81.5 | THROTTLED |
+    | 2400000 | idle | 0 | 0 | 0 | 64.5 | clean |
+    | 2400000 | load | 0 | 0 | 0 | 82.6 | THROTTLED |
+    | 3200000 | idle | 188 | 0 | 0 | 63.9 | clean |
+    | 3200000 | load | 136 | 0 | 0 | 82.0 | THROTTLED |
 
+    **C's real result is zero measured loss in all eight cells**, recovered
+    2026-09-07 from the saved raws — no `unknown` ppm anywhere, so every run did
+    produce rtl_test's summary line and every zero is a measured zero rather than
+    an absent metric.
+
+    ✅ **Configuration B swept in full, 2026-09-07, with the fixed parser** — zero
+    in all eight cells, `lost_ppm` and `lost_bytes` alike, including both 3.2 MS/s
+    rows where C's old parser had reported 188 and 136 bytes. That is the teardown
+    fix confirmed on live data rather than on a fixture. Thermals matched C
+    closely: idle 60.6–61.7 °C clean, load 80.4–81.5 °C all four THROTTLED.
+
+    **`C − B` is zero at every rate, idle and load: core isolation has no
+    measurable effect on sample loss.** Consistent with Test 1, where `C − B` at
+    idle was +5 µs — a small loss, not a win. `nohz_full` is not earning its keep
+    on this workload.
+
+    ⏳ **`B − A` therefore carries the whole of Test 2**, and A is running. If A
+    also reads zero, Test 2 has no discriminating power on this hardware and the
+    honest conclusion is that the Pi 5 + v4 USB path is not the bottleneck at
+    ≤3.2 MS/s — not even throttled to 81 °C under `stress-ng --cpu 4 --io 2` — with
+    the RT case resting on Test 1's latency numbers alone. **A negative result is
+    not a failed run and must not be written up as one.**
+
+    **Worth keeping regardless of how A lands: the throttling cost nothing.** Every
+    load row on both B and C throttled and every one of them lost zero samples. A
+    thermal throttle on this box does not make the USB capture path miss its
+    deadlines, which is the opposite of what the thermal gate's design note
+    assumed when it called throttled rows "contaminated".
     **All four load rows throttled**, as the 30 s smoke test predicted. The idle
     rows all ran 61–64.5 °C and stayed clean, so the gate has headroom and the idle
     half is the publishable comparison.
