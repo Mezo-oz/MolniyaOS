@@ -239,19 +239,25 @@ stop_load() {
 # -- and that is the reportable figure. It is normalised, so it is comparable
 # across rates and durations in a way an absolute byte count is not.
 #
-# WHY THIS CHANGED, found 2026-09-07 after the first full sweep: rtl_test emits a
-# final "lost at least N bytes" AFTER "User cancel, exiting...", when timeout's
-# SIGINT cancels the async read and the in-flight USB buffer is discarded. That
-# chunk is teardown, not loss. It scales with sample rate and is IDENTICAL for a
-# 30 s and a 600 s run -- 188 bytes at 3.2 MS/s in both -- so summing it measured
-# how this harness stops rtl_test, not what the kernel dropped. rtl_test excludes
-# it from its own statistics: the same file that ends "lost at least 188 bytes"
-# says "Samples per million lost (minimum): 0" one line above it.
+# WHY THE BYTE COUNT IS NOT THE METRIC, established 2026-09-07 by a positive
+# control (rtl_test at 3.2 MS/s, nice -n 19, under stress-ng --cpu 16 --io 8):
+# rtl_test does not print gaps as they happen. It DEFERS every "lost at least N
+# bytes" line until the async read is cancelled, so in a 51-line capture the
+# cancel marker sat at line 20, the ppm summary at 21, and all 30 gap lines at
+# 22-51. Position therefore carries no information about when a gap occurred,
+# and no filter on it can separate loss during the run from the final flush.
 #
-# Gap bytes are still summed, because a mid-run gap is a real event worth seeing,
-# but only those before the cancel marker.
-
-CANCEL_MARKER='User cancel, exiting'
+# An earlier revision of this file tried exactly that, keying on the cancel
+# marker. It was wrong twice over: it zeroed the column completely (every gap is
+# post-cancel, always), and the reasoning behind it -- that config C's 188 bytes
+# at 3.2 MS/s was purely a teardown artifact -- was half wrong. Those bytes were
+# a real deferred gap report. They read as 0 ppm because 94 samples out of
+# 1.92e9 is 0.05 ppm, which rounds to nothing. The conclusion held; the reason
+# did not. Do not reintroduce a position-based filter.
+#
+# So: ppm is the metric. Bytes are advisory, a LOWER BOUND that includes the
+# final flush -- "lost at least" and "(minimum)" are both rtl_test hedging, and
+# the two accountings do not reconcile exactly.
 
 # Samples per million lost, per rtl_test's own summary. Prints "unknown" when the
 # line is absent rather than 0: a missing metric and a measured zero are different
@@ -267,14 +273,12 @@ lost_ppm() {
     ' "$1"
 }
 
-# Gap bytes seen DURING the run. Counting stops at the cancel marker so the
-# teardown flush is excluded. A run with no such line lost nothing, which awk
-# reports as 0 rather than as empty -- an empty cell in a results table is
-# ambiguous in a way that zero is not.
+# Every gap rtl_test reported, summed. Advisory only -- see above. A run with no
+# such line lost nothing, which awk reports as 0 rather than as empty: an empty
+# cell in a results table is ambiguous in a way that zero is not.
 sum_lost_bytes() {
-    awk -v marker="$CANCEL_MARKER" '
-        index($0, marker) { done = 1 }
-        !done && /lost at least/ {
+    awk '
+        /lost at least/ {
             for (i = 1; i <= NF; i++)
                 if ($i == "least") { total += $(i+1) + 0; break }
         }

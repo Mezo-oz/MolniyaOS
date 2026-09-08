@@ -3977,18 +3977,49 @@ of the repo on the Pi.
     idle was +5 µs — a small loss, not a win. `nohz_full` is not earning its keep
     on this workload.
 
-    ⏳ **`B − A` therefore carries the whole of Test 2**, and A is running. If A
-    also reads zero, Test 2 has no discriminating power on this hardware and the
-    honest conclusion is that the Pi 5 + v4 USB path is not the bottleneck at
-    ≤3.2 MS/s — not even throttled to 81 °C under `stress-ng --cpu 4 --io 2` — with
-    the RT case resting on Test 1's latency numbers alone. **A negative result is
-    not a failed run and must not be written up as one.**
+    ✅ **Configuration A swept in full, 2026-09-07. `B − A` is zero at every rate,
+    idle and load — the Test 2 matrix is complete and every one of its 24 cells
+    reads zero.** Kernels confirmed distinct from the raw headers, which is the
+    check that matters when three configurations agree: A ran
+    `6.12.62+rpt-rpi-2712`, B and C `6.12.98-kosmos+`.
 
-    **Worth keeping regardless of how A lands: the throttling cost nothing.** Every
-    load row on both B and C throttled and every one of them lost zero samples. A
-    thermal throttle on this box does not make the USB capture path miss its
-    deadlines, which is the opposite of what the thermal gate's design note
-    assumed when it called throttled rows "contaminated".
+    **Test 2's conclusion is a negative result, and a real one.** Neither
+    `PREEMPT_RT` nor core isolation improves SDR sample loss on this hardware
+    because there is no loss to remove: the Pi 5 + v4 USB path is not the
+    bottleneck at any rate to 3.2 MS/s, under `stress-ng --cpu 4 --io 2`, throttled
+    to 82 °C. It does **not** say the kernels are equivalent — Test 1 measures
+    scheduling latency directly and finds a large `B − A`. It says this particular
+    consequence is already at zero on stock and cannot be improved. Full write-up
+    in `BENCHMARKS.md`.
+
+    ✅ **The instrument was proved capable of the opposite answer before that was
+    written down**, because a null result is the same shape a dead metric produces.
+    Positive control: rtl_test at 3.2 MS/s, `nice -n 19`, under
+    `stress-ng --cpu 16 --io 8 --vm 4 --vm-bytes 512M` → **150 ppm across 30 gap
+    events.** The metric fires when there is something to find. This is the same
+    discipline as the smoke test one level up: 24 clean zeros no more validate the
+    test than 2 clean zeros validated the parser.
+
+    🔻 **Correction — the teardown diagnosis was half wrong, and the fix it
+    produced had a bug.** The positive control's raw shows the cancel marker at
+    line 20, the ppm summary at 21, and **all 30 gap lines at 22–51**. rtl_test
+    does not print gaps as they happen; it *defers* every one until the async read
+    is cancelled. So position carries no information about when a gap occurred,
+    `CANCEL_MARKER` excluded everything rather than only the flush, and
+    `sum_lost_bytes` would have reported **0 bytes for a run that lost 150 ppm** —
+    the same failure the fix was meant to remove, relocated. C's 188 bytes were a
+    real deferred gap report, not purely teardown; they read 0 ppm because 94
+    samples out of 1.92e9 is 0.05 ppm. **The conclusion held, the reason did not,
+    and the fixture I verified against encoded the wrong assumption rather than
+    testing it.** `CANCEL_MARKER` is gone; ppm is the metric, bytes are advisory
+    and a lower bound. No measured row changes: `lost_ppm` was correct throughout.
+
+    **The throttling cost nothing.** Every load row on all three configurations
+    throttled and every one lost zero samples. A thermal throttle on this box does
+    not make the USB capture path miss its deadlines — the opposite of what the
+    thermal gate's design note assumed in calling throttled rows "contaminated".
+    Worth revisiting that assumption for Test 2.
+
     **All four load rows throttled**, as the 30 s smoke test predicted. The idle
     rows all ran 61–64.5 °C and stayed clean, so the gate has headroom and the idle
     half is the publishable comparison.
@@ -4018,21 +4049,19 @@ of the repo on the Pi.
     That is the argument for keeping raw files rather than only summary rows: a
     parsing bug found after the fact cost a `grep`, not another 2.5 hours.
 
-    **Fix applied to `run-sdr-bench.sh`:** `lost_ppm()` reads rtl_test's own
-    normalised metric and is now the primary column (`lost_ppm`, first of the loss
-    columns); `sum_lost_bytes()` stops counting at `CANCEL_MARKER` so in-run gaps
-    are still visible without the teardown flush. `lost_ppm` prints `unknown`, not
-    `0`, when the line is absent — a missing metric and a measured zero are
-    different facts, which is the same lesson the smoke test taught. Verified
-    against a fixture reproducing the observed tail: ppm `0`, in-run bytes `512`
-    from a synthetic mid-run gap, teardown `188` correctly excluded, and `unknown`
-    on a file with no metric.
+    **Fix applied to `run-sdr-bench.sh` — and later corrected; see the positive
+    control above.** `lost_ppm()` reads rtl_test's own normalised metric and is the
+    primary loss column. `sum_lost_bytes()` briefly filtered on `CANCEL_MARKER`,
+    which turned out to exclude every gap rather than only the flush; that filter
+    is gone and the byte sum is advisory. `lost_ppm` prints `unknown`, not `0`,
+    when the line is absent — a missing metric and a measured zero are different
+    facts, the same lesson the smoke test taught.
 
     ⚠️ **`sdr-summary.tsv` gained a column (9 → 10).** Move the config C file aside
     before running B or the rows will not line up:
     `mv results/sdr-summary.tsv results/sdr-summary.C-preppm.tsv`.
 
-    🔴 **OUTSTANDING — wifi is `rfkill`-blocked on pi-server and must be
+    🔴 **OUTSTANDING — wifi is `rfkill` soft-blocked on pi-server (ineffectively; see the correction below) and must be
     unblocked when the Test 2 matrix is finished.** Noted 2026-09-07 because
     "we'll turn it off eventually" is how a radio stays blocked for six months on
     a box that is otherwise reached over the LAN.
@@ -4056,8 +4085,22 @@ of the repo on the Pi.
     as B and A, which also gives a repeat of the one configuration measured with
     the old parser.
 
-    ✅ **Fixed forward:** `run_one` now writes `rfkill list` into every raw header,
-    beside the cmdline. B and A will carry provenance C does not.
+    🔻 **Correction — B and A do NOT carry that provenance.** The header change
+    was committed but never pulled onto pi-server before the sweeps ran; the box
+    sat at `f144058` while `0966abe` waited on the remote. No A or B raw contains
+    an `# rfkill:` line — not even the `unknown (rfkill not installed)` the guard
+    would emit — which is how the gap was noticed. **A commit is not a deployment.**
+
+    ⚠️ **And the block was not blocking.** `rfkill block wifi` sets a *soft* block,
+    which anything running as root lifts; the SSID was observed reappearing during
+    the sweep, so the radio was intermittently live at unpredictable moments across
+    all 24 runs. Had the header line been present it would have recorded "blocked"
+    and been **false provenance, which is worse than none.** What actually silences
+    the card is `ip link set wlan0 down`, or unloading `brcmfmac`.
+
+    So the radio is an uncontrolled variable across the whole of Test 2 — noise
+    rather than systematic bias, and every configuration read zero regardless, but
+    it is not a radio-controlled comparison and `BENCHMARKS.md` says so.
 
     **The 600 s duration is now doing real work again.** Under the old parser a
     30 s run and a 600 s run produced the same number, so `DURATION` was measuring
