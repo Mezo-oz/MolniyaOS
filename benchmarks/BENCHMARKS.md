@@ -1,14 +1,15 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 # MolniyaOS RT Kernel Benchmark
 
-**Status: Test 1 complete, Test 2 not started.** All three configurations —
+**Status: Test 1 complete, Test 2 complete.** All three configurations —
 stock, `PREEMPT_RT`, `PREEMPT_RT` + dynticks — have been measured for scheduling
 latency on pi-server, in both affinity modes, and the tables are filled in. The
 headline is `B − A` under IO load: worst-case latency **6262 µs → 175 µs, 35.8×**.
 
-Test 2 (dropped SDR samples) has no dongle on hand, so its tables are still
-empty. An empty cell is honest where an estimate would not be, and it stays empty
-until the hardware exists to fill it.
+Test 2 (dropped SDR samples) is a full 24-run matrix, complete 2026-09-07, and
+every cell reads zero — `B − A = 0` and `C − B = 0` at every rate, idle and under
+load. That is a negative result, not a dead metric: a positive control produced
+150 ppm before the zeros were written down. The RT case rests on Test 1.
 
 Two figures in Test 1 carry caveats rather than confidence, both marked inline:
 every `cpu`-load row throttled, and `A / idle / whole` has not been re-verified.
@@ -446,7 +447,7 @@ expected: they are the runs with the most competing work and the longest tail.
 
 ## Test 2 — Dropped SDR samples
 
-**Needs the RTL-SDR dongle. Not yet run — no dongle on hand.**
+**Complete — 24 runs on the RTL-SDR Blog v4, 2026-09-07. Results below.**
 
 Test 1 measures the mechanism; this measures the consequence, and it is the
 number a reader will care about more than microseconds of wakeup latency.

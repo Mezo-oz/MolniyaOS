@@ -3427,7 +3427,7 @@ is a direct asset.
 ```
 v0.1   ✅ DONE    Custom RT kernel boots on Pi 5
 v0.2   ✅ DONE    SDR userspace tools installed (rtl_433, dump1090, predict)
-v0.25  ⏳ ACTIVE  RT kernel benchmark published (proof of claim — BEFORE the
+v0.25  ✅ DONE    RT kernel benchmark published (proof of claim — BEFORE the
                  SATCOM stack; Test 1 needs no dongle)
                  Harnesses + methodology written, thermal control added, kernel
                  BUILT and pinned (6.12.98-kosmos+, f5a99b95) 07-31, INSTALLED
@@ -3438,9 +3438,15 @@ v0.25  ⏳ ACTIVE  RT kernel benchmark published (proof of claim — BEFORE the
                  whole win is in the tail. Core isolation is a trade, not a
                  free upgrade: 8.1x better on isolated cores under IO load,
                  slightly worse at idle, and it puts a stock-sized tail back
-                 on the housekeeping core. Remaining for v0.25: capture
-                 `uname -v`, and Test 2 (dropped samples), which waits on the
-                 RTL-SDR v4 dongle.
+                 on the housekeeping core.
+                 TEST 2 COMPLETE 09-07: 24 runs on the RTL-SDR Blog v4, zero
+                 loss in every cell, B - A = 0 and C - B = 0 at every rate,
+                 idle and loaded. A negative result, not a dead metric — a
+                 positive control produced 150 ppm first. The RT case rests
+                 on Test 1. Wifi was not controlled across the sweeps, and
+                 BENCHMARKS.md says so. `uname -v` was captured 08-23.
+                 Closed 09-12. Test 3 is illustration, never the result, and
+                 belongs with step 12, not to this milestone.
 v0.3   ......    SatDump + GNU Radio + SDR++ (first satellite decode, pinned)
                  + gr-molniya discontinuity probe (first custom block)
                  Install scripts written and pinned; no build has run.
@@ -3626,9 +3632,10 @@ of the repo on the Pi.
 **Then:**
 8. ~~Reorganize repo into target structure~~ ✅ — single commit, `git mv` with the
    packaging paths updated alongside
-9. **v0.25: rebuild, reinstall, run the benchmark.** ⏳ **Rebuild ✅ 2026-07-31.
-   Install and first boot ✅ 2026-08-02. The benchmark matrix remains** — and it is
-   the part that needs a human at the hardware.
+9. ~~**v0.25: rebuild, reinstall, run the benchmark.**~~ ✅ **Rebuild 2026-07-31.
+   Install and first boot 2026-08-02. Test 1 matrix complete; Test 2 matrix
+   complete 2026-09-07. v0.25 closed 2026-09-12.** The notes below are kept for a
+   re-run.
 
    **Order is B → C → A, revised 2026-08-02.** The previous plan opened with
    config A on the grounds that pi-server was still booted on stock and A was
@@ -4061,12 +4068,26 @@ of the repo on the Pi.
     before running B or the rows will not line up:
     `mv results/sdr-summary.tsv results/sdr-summary.C-preppm.tsv`.
 
-    🔴 **OUTSTANDING — wifi is `rfkill` soft-blocked on pi-server (ineffectively; see the correction below) and must be
-    unblocked when the Test 2 matrix is finished.** Noted 2026-09-07 because
+    ~~🔴 **OUTSTANDING — wifi is `rfkill` soft-blocked on pi-server (ineffectively; see the correction below) and must be
+    unblocked when the Test 2 matrix is finished.**~~ Noted 2026-09-07 because
     "we'll turn it off eventually" is how a radio stays blocked for six months on
     a box that is otherwise reached over the LAN.
 
-        sudo rfkill unblock wifi && rfkill list wifi
+    ✅ **RESOLVED 2026-09-12 — and the radio was off at three layers, not one.**
+    The `rfkill` soft block was already clear by then. `wlan0` was admin-down, and
+    NetworkManager's own radio switch was off (`nmcli radio wifi` → `disabled`).
+    That last layer is the one that bites: with it off, bringing the link up
+    leaves NM reporting the device `unavailable` and nothing else suggests why.
+    Restored with:
+
+        sudo ip link set wlan0 up && sudo nmcli radio wifi on
+
+    NM now reports `wlan0:wifi:disconnected`, and **disconnected is the baseline,
+    not a fault.** pi-server has no wifi profile at all, only
+    `eth0.nmconnection`, and no hostapd. It is reached over eth0, whose static
+    default route never moved. Also worth knowing before the next check: `rfkill`
+    lives in `/usr/sbin`, which is not on homelab's PATH, so a bare `rfkill list`
+    over ssh prints `command not found` rather than a state.
 
     **Why it was blocked matters less than keeping it constant.** It buys nothing
     for Test 2 on RF grounds — `rtl_test` pulls at the requested rate whatever the
