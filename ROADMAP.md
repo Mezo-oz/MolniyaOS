@@ -552,7 +552,8 @@ detection returns the configuration letter on stdout:
 CONFIG=$(./bench-detect-config.sh)      # prints A, B or C; non-zero if unsure
 ```
 
-**Current headroom** (re-measured 2026-09-01, after Test 2's thermal gating):
+**Current headroom** (re-measured 2026-09-01, after Test 2's thermal gating;
+`03b` and `03c` re-measured 2026-09-13 after their header comments changed):
 `assemble-image.sh` **400**, `verify-image.sh` **399**, `layout.sh` **399**,
 `molniya-health-check.sh` **399**, `build-rootfs.sh` **399**,
 `run-sdr-bench.sh` **398**, `tle-updater.sh` **397**,
@@ -561,7 +562,7 @@ CONFIG=$(./bench-detect-config.sh)      # prints A, B or C; non-zero if unsure
 `02c-sdr-userspace.sh` 352, `01-build-kernel.sh` 329, `build-image.sh` 329,
 `build-bundle.sh` 266, `install-tle-timer.sh` 249, `10-molniya.sh` 242,
 `make-keys.sh` 238, `03a-gnuradio-stack.sh` 227, `inject-keyring.sh` 220,
-`thermal-state.sh` 207, `03b-satdump.sh` 206, `03c-sdrpp.sh` 203,
+`thermal-state.sh` 207, `03b-satdump.sh` 205, `03c-sdrpp.sh` 205,
 `verify-rauc.sh` 199, `02a-verify-kernel.sh` 198, `fetch-base.sh` 194,
 `slot-identity.sh` 157.
 
@@ -1158,9 +1159,11 @@ positioning leans harder on pillars 2 and 3.
 
 #### 1a. Satellite Reception Stack
 
-*Scripts written and linted (`03-satcom-stack.sh` sequencing `03a`/`03b`/`03c`),
-pinned from line one. **No build has been executed** — that needs the Pi, so the
-first run on pi-server is the test.*
+*Scripts written, linted and run (`03-satcom-stack.sh` sequencing
+`03a`/`03b`/`03c`), pinned from line one: in the image-build chroot 2026-08-23,
+and on pi-server's live system 2026-09-13, exit 0. **The live run found 03a
+letting Debian's librtlsdr shadow the Blog fork** — see Immediate Next Steps,
+step 11.*
 
 - [x] **SatDump** — The all-in-one satellite processor — *`03b-satdump.sh`,
   pinned to release 1.2.2 (`7aef0fe8441b`), built from source, prefix
@@ -3449,7 +3452,10 @@ v0.25  ✅ DONE    RT kernel benchmark published (proof of claim — BEFORE the
                  belongs with step 12, not to this milestone.
 v0.3   ......    SatDump + GNU Radio + SDR++ (first satellite decode, pinned)
                  + gr-molniya discontinuity probe (first custom block)
-                 Install scripts written and pinned; no build has run.
+                 Install scripts pinned and run on pi-server 09-13, exit 0.
+                 03a lets Debian's librtlsdr shadow the Blog fork. At best
+                 gain the two measure the same on the v4 (step 11); whether
+                 to drop the fork is not yet decided.
                  Probe implemented; its math is unit-tested, its GNU
                  Radio shell has never run.
 v0.4   ......    Automated capture pipeline (scheduled sat passes)
@@ -3877,6 +3883,8 @@ of the repo on the Pi.
     verified, and `/usr/local/share/molniya/build-manifest.txt` records them.
     `rtl_test` links `/usr/local/lib/librtlsdr.so.0` — the blog fork, which is the
     one that matters, since stock osmocom librtlsdr cannot drive a v4.
+    *(2026-09-13: no longer true — 03a installed Debian's `librtlsdr0`, which
+    shadows the fork — and "cannot drive a v4" is now in doubt. See step 11.)*
     `predict` built without its curses installer as designed, and `gpredict` was
     skipped for want of a display, which is the headless rule working rather than
     a gap.
@@ -4134,9 +4142,99 @@ of the repo on the Pi.
     matters: the hazard is the *USB* connector, where a nudge causes a
     re-enumeration that reads as a burst of lost samples. Antenna and sky are step
     12's problem, not Test 2's.
-11. ~~Build `03-satcom-stack.sh` — pinned from line one~~ ✅ **written and
-    linted**, pinned from line one. Still needs its first run on pi-server;
-    nothing in it has been executed.
+11. ~~Build `03-satcom-stack.sh` — pinned from line one~~ ✅ **first run on
+    pi-server's live system, 2026-09-13 01:48–02:28 UTC — exit 0, all three jobs
+    installed.** Until then it had only run inside the image-build chroot
+    (2026-08-23), the same gap `02c` had: the live box had no `satdump`, no GNU
+    Radio and no `sdrpp`. Run from `6f98507` on the stock kernel, detached with no
+    tty and `MOLNIYA_ASSUME_YES=1`.
+
+    - **Verified by running, not by the exit code.** `satdump version` →
+      `v1.2.2-7aef0fe`; `from gnuradio import gr; import osmosdr` → `3.10.12.0`;
+      `sdrpp` present. The manifest carries all seven lines and the pins held:
+      `gnuradio 3.10.12.0-1` and `gr-osmosdr 0.2.6-4` exact, SoapySDR
+      `0.8.1-5+b2` accepted as an arch rebuild.
+    - **40 minutes, not hours.** 03a finished 01:59, SatDump 02:25, SDR++ 02:28.
+    - **`/tmp` is a 2 GB tmpfs on the live box, and was plain disk in the
+      chroot** — and it is where 03b/03c build. Sampled every 15 s: MemAvailable
+      never below 1906 MiB, swap barely touched (1737 MiB free at worst), `/tmp`
+      never below 1676 MiB free, 83 °C peak. It fits, with room.
+    - **debconf fell back to Noninteractive**, as in the chroot. That is why the
+      run had no tty: under tmux it would have had a terminal to block on.
+    - **SDR++ installs to `/usr`, not `/usr/local`.** 03c passes no
+      `CMAKE_INSTALL_PREFIX`, so `sdrpp` landed in `/usr/bin` and its plugins in
+      `/usr/lib/sdrpp` — inside dpkg's tree, which 03b's prefix note says locally
+      built software should stay out of. Not changed yet.
+
+    ⚠️ **03a broke the librtlsdr guarantee the stack is built around, and every
+    check passed.** `libsoapysdr0.8` *Recommends* `soapysdr0.8-module-all`, apt
+    installs recommends by default, and that pulls all twelve Soapy modules —
+    including `soapysdr0.8-module-rtlsdr`, the one 03a's header says is
+    deliberately not installed. 03a's verify step lists the modules beside a
+    comment calling an empty list "the expected and correct result"; it listed
+    twelve. Separately, `libgnuradio-osmosdr0.2.0t64` hard-*Depends* on
+    `librtlsdr0`, so `--no-install-recommends` alone would not remove it.
+
+    Debian's `librtlsdr0` 2.0.2 and the Blog fork share the SONAME
+    `librtlsdr.so.0`, and `/lib/aarch64-linux-gnu` precedes `/usr/local/lib` in the
+    loader's search order. **So the distro copy now wins for everything:**
+    `rtl_test`, `rtl_433`, `dump1090`, SatDump's `librtlsdr_sdr_support.so` and
+    SDR++'s `rtl_sdr_source.so` all resolve to
+    `/lib/aarch64-linux-gnu/librtlsdr.so.0`, where on 2026-09-04 `rtl_test`
+    resolved to `/usr/local/lib`. 03b/03c's `require_local_librtlsdr` looks for the
+    fork's *header*, which is still there, so it passed. It tests a proxy for the
+    thing rather than the thing — the loader decides which library runs, and
+    `ldd` is the only check that asks it.
+
+    The Test 2 sweeps (2026-09-07) predate this and ran on the fork. A re-run from
+    here would not, unless the library is forced.
+
+    ⚠️ **The premise may be out of date, which is why this is being measured
+    before it is fixed.** Debian's copy reports `RTL-SDR Blog V4 Detected` on this
+    dongle, carries the same V4/R828D strings as the fork, and exports the same 37
+    symbols with no difference either way. Debian carried an
+    `add-rtl-sdr-blog-v4-support` patch as far back as 0.6.0-5, and 2.0.3
+    (August 2026, not in trixie) adds V4L support contributed by rtlsdrblog. The
+    same API and the same detection are not the same behaviour, so a comparison on
+    the dongle decides it. If the two match, the fork comes out of `02c`: one
+    librtlsdr instead of two, and one fewer source build to pin. The August image
+    went through the same 03a, so it very likely carries the same shadowing —
+    unverified, and `verify-image.sh` has no check that would say.
+
+    ✅ **Compared on the dongle 2026-09-13: at best gain, the two libraries are
+    indistinguishable.** Same tool binaries throughout, only the library changing
+    (`LD_LIBRARY_PATH=/usr/local/lib` forces the fork, confirmed by `ldd`);
+    `rtl_power` at fixed gain, libraries alternated, indoor dipole.
+
+    - **HF tunes on both.** `rtl_sdr -f 7100000` locks and captures the full
+      4,096,000 bytes on each, and no HF sweep logged a PLL error. The V4's
+      upconverter path is in Debian's copy.
+    - **Best SNR over a gain sweep, 0–49.6 dB** (strongest bin above the median):
+
+      | Band | Debian best | Fork best |
+      |---|---|---|
+      | 162.3–162.6 MHz, NOAA weather radio | 43.6 dB @ 14.4 | 44.0 dB @ 14.4 |
+      | 88–108 MHz, FM broadcast | 35.95 dB @ 7.7 | 35.87 dB @ 7.7 |
+      | 0.5–28.5 MHz, HF | 32.9 dB @ 20.7 | 32.0 dB @ 20.7 |
+
+      HF bins standing 10 dB clear of the floor peaked at 388 (Debian) and 363
+      (fork), both at 29.7. Repeat passes at one gain agreed to about 1 dB.
+    - **The difference that is real is the gain mapping.** At the same `-g` the
+      fork's floor sits 0.4–5 dB higher in every band: it applies more real gain
+      for the same number, about one step of the 29-value table. That is what a
+      single-gain comparison at 29.7 first reported as a 10 dB SNR deficit for the
+      fork at 162 MHz. 29.7 sits on this site's overload cliff, and the fork goes
+      over it a step early. Anything that pins a gain number — a SatDump profile,
+      a capture script — moves by about a step if the library changes.
+    - **Both overload above ~15–20 dB of gain here at VHF:** the floor jumps
+      ~25 dB between 14.4 and 20.7. Indoors and near broadcast FM, so worth
+      knowing when step 12 picks a gain, and not assumed to hold outdoors.
+
+    **The gaps in "indistinguishable":** no decode outcome (ADS-B near midnight
+    local decoded one aircraft across four 60 s runs, with no device errors —
+    too little traffic to compare), no bias-tee test, which needs the antenna
+    disconnected first, and no sample-loss run at the Test 2 rates. Raw CSVs sit
+    in `/tmp/libcmp` on pi-server until its next reboot.
 12. First NOAA APT capture using SatDump
 13. ~~**A/B pre-checks (no purchase, no reboot required)** — on pi-server~~
     ✅ **both run 2026-08-23**, against the running MolniyaOS kernel

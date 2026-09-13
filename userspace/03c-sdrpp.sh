@@ -12,8 +12,10 @@
 #
 # EXIT CODES: 0 built and installed, 3 declined by the user.
 #
-# NOT YET RUN ON HARDWARE — written from upstream's build instructions at the
-# pinned commit, linted and reviewed, but no build executed. It needs the Pi.
+# RUN ON HARDWARE: in the image-build chroot 2026-08-23, and on pi-server's live
+# system 2026-09-13. Written from upstream's build instructions at the pinned
+# commit. No CMAKE_INSTALL_PREFIX is passed, so this installs under /usr rather
+# than /usr/local — see ROADMAP step 11.
 #
 # HEADLESS NOTE: SDR++ is a GUI application and needs a display to run. It still
 # builds fine on a headless box, and it can be driven over X forwarding or VNC,

@@ -27,9 +27,9 @@
 # Blog v4 dongle work. 03b and 03c check for it and refuse to build without it,
 # rather than producing binaries that cannot see the hardware.
 #
-# TIME: budget hours, not minutes. SatDump and SDR++ are both substantial C++
-# builds on four Cortex-A76 cores. Neither has been run on hardware yet — see
-# BENCHMARKS.md for what is verified and what is not.
+# TIME: SatDump and SDR++ are both substantial C++ builds. The first live run on
+# pi-server (2026-09-13, four Cortex-A76 cores, -j4) took 40 minutes for all
+# three jobs; ROADMAP step 11 records what it found.
 # ============================================================================
 
 set -euo pipefail

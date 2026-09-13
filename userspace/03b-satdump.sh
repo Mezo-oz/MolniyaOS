@@ -15,10 +15,9 @@
 # TIME: a substantial C++ build. Budget an hour on four Cortex-A76 cores and do
 # not run it over a flaky SSH session — use tmux or screen.
 #
-# NOT YET RUN ON HARDWARE. This script is written from upstream's own Debian
-# instructions at the pinned commit; it has been linted and reviewed but no
-# build has been executed, because that needs the Pi. Treat the first run as the
-# test.
+# RUN ON HARDWARE: in the image-build chroot 2026-08-23, and on pi-server's live
+# system 2026-09-13 (about 26 minutes for this job). Written from upstream's own
+# Debian instructions at the pinned commit.
 # ============================================================================
 
 set -euo pipefail
