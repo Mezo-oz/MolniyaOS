@@ -183,7 +183,30 @@ cd "$KERNEL_DIR"
 
 if [ -n "$KERNEL_COMMIT" ]; then
     echo "       Fetching pinned commit $KERNEL_COMMIT..."
-    git fetch -q --depth 1 origin "$KERNEL_COMMIT"
+    # A server is allowed to refuse a want for a bare SHA. GitHub serves
+    # them today -- re-checked 2026-09-20 against this very pin -- but that
+    # is policy, not a guarantee: a mirror may refuse, and a commit lost to
+    # a force-push or a GC upstream is gone whatever the policy. Left bare,
+    # that failure arrives as git's one-line complaint about an invalid
+    # refspec, which reads like a typo in the pin rather than a tree that is
+    # no longer reachable. 02c-sdr-userspace.sh falls back to a tag at this
+    # point; a kernel branch has no tag to fall back to, so this diagnoses.
+    if ! git fetch -q --depth 1 origin "$KERNEL_COMMIT"; then
+        echo "" >&2
+        echo "ERROR: $KERNEL_URL refused a fetch of the pinned commit:" >&2
+        echo "       $KERNEL_COMMIT" >&2
+        echo "" >&2
+        echo "       Likely causes, in order: the branch was force-pushed or" >&2
+        echo "       garbage-collected upstream, or this URL is a mirror that" >&2
+        echo "       will not serve an arbitrary SHA." >&2
+        echo "" >&2
+        echo "       Do NOT clear KERNEL_COMMIT to get past this. That builds" >&2
+        echo "       whatever the branch tip is today, which is a different" >&2
+        echo "       kernel -- as of 2026-09-20 the tip is 3309 commits ahead" >&2
+        echo "       of this pin and three sublevels up -- and it voids every" >&2
+        echo "       benchmark comparison without saying so." >&2
+        exit 1
+    fi
     git checkout -q FETCH_HEAD
 elif [ "$EXISTING_SOURCE" -eq 1 ]; then
     echo "       Kernel source already exists, pulling latest..."

@@ -342,8 +342,14 @@ Three pillars separate this from a toy:
    the checkout against the pin, hard-failing on a mismatch rather than building
    whatever a moved tag points at. Every new build script pins from line one.
    What is built gets recorded to `/usr/local/share/molniya/build-manifest.txt`,
-   so a box can be asked which revision a binary came from. Still open: the
-   kernel branch itself (`rpi-6.12.y`) is a moving target — see Phase 4a.*
+   so a box can be asked which revision a binary came from.*
+   ✅ **The kernel itself is pinned too, closing what this note left open**
+   (`370fd6f`): `KERNEL_COMMIT` is set to the commit that actually built, the
+   fetch is an init+fetch of that SHA rather than a clone of the branch, and the
+   checkout is verified with a hard failure on mismatch. Re-verified 2026-09-20 —
+   the pin still resolves on GitHub and is kernel 6.12.98, while `rpi-6.12.y` has
+   moved 3309 commits on to `SUBLEVEL = 110`. Nothing about the branch being a
+   moving target changed; the build simply stopped riding it.
 
 ---
 

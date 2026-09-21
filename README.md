@@ -321,9 +321,20 @@ stay in English regardless.
   force-push upstream — read the history and bump the tag and SHA together rather
   than removing the check. Revisions installed are appended to
   `/usr/local/share/molniya/build-manifest.txt`.
-- `kernel/01-build-kernel.sh` is *not* pinned: it clones `raspberrypi/linux` at
-  branch `rpi-6.12.y`, whose tip moves. Two kernel builds weeks apart are not the
-  same kernel.
+- `kernel/01-build-kernel.sh` **is pinned.** `KERNEL_COMMIT` names the exact
+  `raspberrypi/linux` commit to build; when it is set the script does an
+  `init` + `fetch` of that SHA rather than cloning the branch, because cloning a
+  branch gets today's tip, which is what a pin exists to prevent. The checkout is
+  then verified against the pin and the build aborts on any mismatch. The pin is
+  `f5a99b95354d38db209003a7d00560e5091ba94a` — kernel **6.12.98**, the tree every
+  published benchmark number was measured on. The same SHA is recorded in
+  `benchmarks/BENCHMARKS.md` and shipped inside the package as `kernel-commit`,
+  so an installed kernel can be traced back to its source.
+  ⚠️ **Checked 2026-09-20: `rpi-6.12.y` has since moved 3309 commits past the
+  pin and now carries `SUBLEVEL = 110`.** An unpinned build today would produce
+  6.12.110 — not a newer commit of the same kernel, a different kernel. That is
+  the pin doing its job. Bump it deliberately when you mean to (change the SHA,
+  rebuild, re-run the benchmark, update `BENCHMARKS.md`), never by clearing it.
 - `predict` is compiled via its own curses installer rather than a standard `make
   install`, so it needs `libncurses-dev` present.
 - `gpredict` is skipped automatically on a headless system.
