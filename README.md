@@ -67,18 +67,22 @@ Expect 45–90 minutes for a full kernel build on four cores.
 | `kernel/package-kernel.sh` | build host | Stages the built kernel and the Pi-side scripts into a tarball. Re-runnable without rebuilding |
 | `kernel/sdr-rt.config` | — | Kernel config fragment: the options MolniyaOS changes from `bcm2712_defconfig` |
 | `kernel/install-kernel.sh` | Pi | Installs the kernel, DTBs, overlays and cmdline into their own boot directory |
-| `userspace/02-post-install.sh` | Pi | Sequencer — runs the four scripts below in order |
+| `userspace/02-post-install.sh` | Pi | Sequencer — runs `02a`–`02d` below in order |
 | `userspace/02a-verify-kernel.sh` | Pi | Verifies the running kernel. Read-only; installs nothing |
 | `userspace/02b-bench-tools.sh` | Pi | `rt-tests` + `stress-ng` for the latency benchmark |
 | `userspace/02c-sdr-userspace.sh` | Pi | Builds librtlsdr, rtl_433, dump1090, predict |
 | `userspace/02d-locale-ru.sh` | Pi | Optional Russian locale (personal preference) |
+| `userspace/02e-harden-flash.sh` | Pi | Optional flash-wear hardening for an unattended deployment. Not in the sequencer |
 
 The `02` set is copied into the kernel tarball by the build, so it arrives on the
 Pi alongside the kernel payload — you do not transfer it separately.
 
-`02a`–`02d` each run standalone. `02-post-install.sh` exists so that one command
+`02a`–`02e` each run standalone. `02-post-install.sh` exists so that one command
 still does the whole sequence, and because that is the name the build packages and
-the docs have always pointed at.
+the docs have always pointed at. It runs `02a`–`02d` only: `02e` is deliberately
+outside the sequence, because it changes machine policy for one deployment shape
+and the bench box must not acquire that policy silently between two benchmark
+passes.
 
 Everything below is run from a clone of this repository on the Pi. None of it is
 in the kernel tarball, because none of it is needed to get the kernel running.

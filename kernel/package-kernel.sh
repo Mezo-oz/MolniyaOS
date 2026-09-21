@@ -105,6 +105,12 @@ echo "$KERNEL_SHA" > "$PACKAGE_DIR/kernel-commit"
 # install-kernel.sh still resolves its own directory at runtime and finds boot/
 # and modules/ beside it, and 02-post-install.sh finds its job scripts beside it.
 #
+# 02e is packaged but is NOT in the sequencer. It changes machine policy for
+# one deployment shape -- an unattended box on a cheap card -- and the bench
+# box must not acquire that policy silently between two benchmark passes. It
+# ships because the tarball is how Pi-side scripts arrive, and a hardening
+# script that never reaches the Pi hardens nothing.
+#
 # 02-post-install.sh is a sequencer: without 02a-02d it exits with a diagnostic
 # and installs nothing. Dropping one of them here would ship a tarball that looks
 # complete and fails on the Pi, so the loop below hard-fails on any missing entry
@@ -116,6 +122,7 @@ PI_SIDE_SCRIPTS=(
     "$REPO_ROOT/userspace/02b-bench-tools.sh"
     "$REPO_ROOT/userspace/02c-sdr-userspace.sh"
     "$REPO_ROOT/userspace/02d-locale-ru.sh"
+    "$REPO_ROOT/userspace/02e-harden-flash.sh"
 )
 
 for src in "${PI_SIDE_SCRIPTS[@]}"; do
