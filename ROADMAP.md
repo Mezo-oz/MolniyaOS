@@ -393,6 +393,9 @@ shell/Python:
    deliberate and named LIKE_THIS (rule 6)
 7. **Pin every version, checksum every download** — Pillar 3's mechanics
 8. **stdout is the product; everything else goes to stderr** — see below
+9. **A completed file is named; a partial one is not** — anything that
+   outlives the process is staged under a temp name *in the destination
+   directory* and renamed only once it is complete and durable — see below
 
 ### ⚠️ Standard 3 has a sharp edge: never pipe into `grep -q` (found 2026-08-23)
 
@@ -470,6 +473,108 @@ The rule, stated so it can be applied without re-deriving it:
   kind of thing, decided by the script's contract, and nothing else.
 - Helpers stay executable subprocesses returning data on stdout (see the
   extraction rule) — which is exactly why this discipline has to hold.
+
+### ⚠️ Standard 9: a completed file is named; a partial one is not (adopted 2026-09-27)
+
+A pass recording that stops early because the box lost power looks exactly like
+one that stops early because the satellite was low on the horizon. Both are short
+files, both valid up to the byte they end on. Nothing inside either one says which
+happened — and the decode stage, the captures index and the operator all have to
+guess, which in practice means all three assume the capture is fine.
+
+The rule removes the guess by spending the one thing a filesystem gives us for
+free: **the final name means complete; a staged name means it is not.** Presence
+of the name *is* the completion record. Not a sidecar file, not a status column —
+those can be lost separately from the thing they describe, which puts us back
+where we started with an extra file to disbelieve.
+
+**The sequence, and all four steps carry weight:**
+
+1. Write to a temp name **in the destination directory**.
+2. `sync` the temp file. On ext4 `data=ordered` a rename is atomic with respect to
+   a crash, but only *once the data is durable* — skip this and you can come back
+   to a correctly named file full of zeros, which is the one outcome worse than a
+   partial, because the name now lies.
+3. `mv -f` into place. Atomic within a single filesystem: after power loss you get
+   the old name or the new one, never both and never neither.
+4. `sync` the directory, so the rename itself survives.
+
+**Why the destination directory** — the step most likely to be skipped, because
+skipping it looks identical in the diff. `/tmp` is **tmpfs** on this box (2.0 GB;
+`$HOME` is ext4 on p2, both measured on pi-server 2026-09-27). A `mv` across that
+boundary is a **copy**, and a copy is interruptible: the rule is defeated while
+appearing to be followed. `install` is a copy too, always, even within one
+filesystem. Note the split — staging the *download* on tmpfs is correct and should
+stay, since nothing that gets rejected ever reaches flash, which is exactly what
+`02e` is for; it is the *final artifact* that has to be staged next to where it
+lands.
+
+**Two precedents already in the tree, and they are not equivalent:**
+
+- `image/fetch-base.sh` — `.part`, then `mv`. A download.
+- `image/rauc/molniya-boot-backend.sh:234` — `.tmp`, `sync`, read back and verify,
+  `mv -f`, `sync`. The careful one, because a torn `autoboot.txt` is a card that
+  does not boot and FAT has no journal to fall back on.
+
+#### The capture asymmetry — the part that is actually new
+
+Both precedents **delete** the partial on failure, and both are right to: a
+download can be fetched again. **A capture cannot.** The pass is over. A truncated
+recording of a pass that will not come round again for twelve hours may still
+decode to a usable image, so for captures the partial is **kept, under its staged
+name**, and the cleanup trap must *not* be copied across from either precedent.
+The staged name is not litter awaiting collection; it is the evidence, correctly
+labelled.
+
+**Consequences to design for rather than rediscover:**
+
+- **The staged name is unique per pass**, not a bare fixed `.part`. The next pass
+  may begin after a reboot and must not open, append to, or overwrite what the
+  last one left behind. The final name already carries a UTC timestamp; the staged
+  name carries the same one.
+- **Suffix, not prefix or a different extension.** `noaa19-20260927T1812Z.wav.part`
+  is skipped for free by any consumer globbing `*.wav`, so a decoder never has to
+  learn this convention in order to avoid eating a partial. A prefix does not buy
+  that, and neither does `.partial-wav`.
+- **A tool that emits a directory of products rather than one file** — SatDump in
+  live processing is the case we will hit first — stages the **directory** and
+  renames the directory. That rename is atomic on the same terms.
+- **Kept partials accumulate**, and an unbounded pile of them fills the data
+  partition, which is the failure mode proposal 2 exists to contain. Retention is
+  proposal 2's business. This standard only guarantees they are *identifiable*,
+  which is the precondition for bounding them at all.
+
+**What it does not claim.** It does not make a capture crash-proof and it does not
+recover samples that were in flight. It makes "short" and "cut off" two different
+facts on the filesystem instead of one ambiguous file.
+
+#### ⚠️ Known sites that do not follow it yet (found 2026-09-27)
+
+`automation/tle-updater.sh` has two, and they are worth stating precisely because
+one of them is a silent-wrong-answer bug rather than a lost file:
+
+- **Line 330**, `install -m 0644 "$PREDICT_STAGE" "$PREDICT_TLE"` — `install`
+  copies, and `$PREDICT_STAGE` is on tmpfs, so this is interruptible twice over.
+  It matters more than most write paths in the tree: the script's own header
+  records that predict reads **exactly one file** with **fixed-width column
+  offsets**, so a torn `predict.tle` does not fail, it answers confidently with
+  the wrong pass times — and you find out by standing outside at the wrong
+  moment. A `.bak` is written immediately beforehand, so recovery exists; nothing
+  detects that recovery is needed.
+- **Line 363**, `tr -d '\r' < "$staged" > "$GROUP_DIR/$group.tle"` — the redirect
+  **truncates the live file before writing a byte**, so an interrupted write
+  destroys the previous good group file, and group files get no `.bak`. The
+  script's closing message says "nothing was overwritten with a bad download";
+  that is true of a *rejected* download and false of an *interrupted* write.
+
+**Both are unfixed on purpose.** With the rationale this house style asks for the
+two fixes run to roughly eight lines, and `tle-updater.sh` sits at **397 of
+400** under a header that says to read the extraction rule before adding to it. So
+this fires the extraction trigger for real, and the shape it wants is an
+executable helper invoked as a subprocess — plausibly the same helper the capture
+pipeline will need. That is a deliberate decision, not a detail to settle while
+applying a standard.
+
 
 ### Extraction rule (decided 2026-07-30)
 
