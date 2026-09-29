@@ -29,13 +29,15 @@
 # SMOKE-TESTED 2026-09-07, config C, --quick into /tmp/sdr-smoke. Both rows
 # completed and the rtl_test parsing is VALIDATED -- but not by that run. Two
 # clean 30 s rows at 2.4 MS/s reported zero loss, and `grep -c "lost at least"`
-# on both raws returned 0, meaning sum_lost_bytes' awk branch had never executed:
+# on both raws returned 0, meaning the byte-summing awk branch had never run:
 # a file with no matching line and a file whose wording the pattern misses are
 # the same output. It was validated by forcing loss at 3.2 MS/s --
 #   timeout --signal=INT 30 rtl_test -s 3200000 > parsecheck.txt 2>&1 || true
 # -- which produced one gap line and summed to 188 bytes = 94 samples. A clean
 # row is only evidence if something in the same session produced a dirty one.
-# The full DURATION=600 sweep has still never been run.
+# The full DURATION=600 sweep has since run on all three configurations: 24
+# raws, complete 2026-09-07, tabulated in BENCHMARKS.md. Config C predates
+# lost_ppm and was re-derived from its saved raws, not re-measured.
 #
 # Smoke-test with --quick AND a scratch directory, never the real results dir:
 #   MOLNIYA_BENCH_OUT=/tmp/sdr-smoke ./run-sdr-bench.sh --quick
@@ -43,10 +45,11 @@
 # real directory destroys the raw evidence for 2.4 MS/s and leaves rows that
 # outlive it. The `seconds` column is what tells a 30 s row from a 600 s one.
 #
-# SHARED CODE: governor control, config detection and thermal state are executable
-# helpers, called as subprocesses and never sourced — the shape the extraction rule
-# in ROADMAP.md settled on when thermal gating tripped the 400-line trigger in
-# run-latency-bench.sh. This file held the last inline copies; it no longer does.
+# SHARED CODE: governor control, config detection, thermal state and rtl_test
+# loss parsing are executable helpers, called as subprocesses and never sourced —
+# the shape the extraction rule in ROADMAP.md settled on when thermal gating
+# tripped the 400-line trigger in run-latency-bench.sh. The parser left this file
+# in its turn, when Test 2's own growth tripped the same trigger at 456 lines.
 # ============================================================================
 
 set -euo pipefail
@@ -129,30 +132,9 @@ fi
 
 # --- Preconditions ----------------------------------------------------------
 
-for tool in rtl_test stress-ng timeout; do
-    if ! command -v "$tool" > /dev/null 2>&1; then
-        echo "ERROR: $tool is not installed." >&2
-        echo "       rtl_test comes from userspace/02c-sdr-userspace.sh;" >&2
-        echo "       stress-ng from 02b-bench-tools.sh." >&2
-        exit 1
-    fi
-done
-
-# A dongle that is not there, or is claimed by the DVB-T driver, produces a run
-# of zeros that looks like a perfect result. Check before measuring anything.
-if ! rtl_test -t > /dev/null 2>&1; then
-    echo "ERROR: rtl_test cannot open a device." >&2
-    echo "" >&2
-    echo "       Either no dongle is connected, or the kernel DVB-T driver has" >&2
-    echo "       claimed it. 02c-sdr-userspace.sh installs the blacklist that" >&2
-    echo "       prevents the latter; it needs a reboot or a replug to take" >&2
-    echo "       effect. Check with:  lsmod | grep dvb" >&2
-    echo "" >&2
-    echo "       This matters more than a normal missing-dependency error: with" >&2
-    echo "       no device, every run below would report zero lost samples and" >&2
-    echo "       look like a flawless result." >&2
-    exit 1
-fi
+# Tools, and a dongle that actually opens. A separate helper so readiness can be
+# checked from a terminal without starting a sweep; it says why on stderr.
+"$SELF_DIR/sdr-preflight.sh" || exit 1
 
 if ! sudo -v; then
     echo "ERROR: this suite needs sudo to set the CPU governor." >&2
@@ -231,59 +213,6 @@ stop_load() {
         LOAD_PID=""
     fi
     pkill -x stress-ng 2>/dev/null || true
-}
-
-# --- Result parsing ---------------------------------------------------------
-
-# rtl_test publishes its OWN aggregate -- "Samples per million lost (minimum): N"
-# -- and that is the reportable figure. It is normalised, so it is comparable
-# across rates and durations in a way an absolute byte count is not.
-#
-# WHY THE BYTE COUNT IS NOT THE METRIC, established 2026-09-07 by a positive
-# control (rtl_test at 3.2 MS/s, nice -n 19, under stress-ng --cpu 16 --io 8):
-# rtl_test does not print gaps as they happen. It DEFERS every "lost at least N
-# bytes" line until the async read is cancelled, so in a 51-line capture the
-# cancel marker sat at line 20, the ppm summary at 21, and all 30 gap lines at
-# 22-51. Position therefore carries no information about when a gap occurred,
-# and no filter on it can separate loss during the run from the final flush.
-#
-# An earlier revision of this file tried exactly that, keying on the cancel
-# marker. It was wrong twice over: it zeroed the column completely (every gap is
-# post-cancel, always), and the reasoning behind it -- that config C's 188 bytes
-# at 3.2 MS/s was purely a teardown artifact -- was half wrong. Those bytes were
-# a real deferred gap report. They read as 0 ppm because 94 samples out of
-# 1.92e9 is 0.05 ppm, which rounds to nothing. The conclusion held; the reason
-# did not. Do not reintroduce a position-based filter.
-#
-# So: ppm is the metric. Bytes are advisory, a LOWER BOUND that includes the
-# final flush -- "lost at least" and "(minimum)" are both rtl_test hedging, and
-# the two accountings do not reconcile exactly.
-
-# Samples per million lost, per rtl_test's own summary. Prints "unknown" when the
-# line is absent rather than 0: a missing metric and a measured zero are different
-# facts and only one of them is a result. That distinction is the whole reason
-# this function exists -- see the smoke test, where two zeros meant "never parsed".
-lost_ppm() {
-    awk '
-        /Samples per million lost/ {
-            for (i = NF; i >= 1; i--)
-                if ($i ~ /^[0-9]+$/) { v = $i; found = 1; break }
-        }
-        END { print (found ? v : "unknown") }
-    ' "$1"
-}
-
-# Every gap rtl_test reported, summed. Advisory only -- see above. A run with no
-# such line lost nothing, which awk reports as 0 rather than as empty: an empty
-# cell in a results table is ambiguous in a way that zero is not.
-sum_lost_bytes() {
-    awk '
-        /lost at least/ {
-            for (i = 1; i <= NF; i++)
-                if ($i == "least") { total += $(i+1) + 0; break }
-        }
-        END { print total + 0 }
-    ' "$1"
 }
 
 # --- The run ----------------------------------------------------------------
@@ -374,10 +303,11 @@ run_one() {
     fi
     echo "      peak:   $peak"
 
-    local bytes samples ppm
-    bytes=$(sum_lost_bytes "$raw")
-    samples=$(( bytes / 2 ))
-    ppm=$(lost_ppm "$raw")
+    local loss bytes samples ppm
+    loss=$("$SELF_DIR/rtl-loss.sh" read "$raw")
+    ppm=${loss#*ppm=};         ppm=${ppm%% *}
+    bytes=${loss#*bytes=};     bytes=${bytes%% *}
+    samples=${loss#*samples=}; samples=${samples%% *}
 
     printf '      lost %s ppm (rtl_test); %s bytes = %s samples in-run\n' \
         "$ppm" "$bytes" "$samples"

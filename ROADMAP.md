@@ -663,21 +663,28 @@ detection returns the configuration letter on stdout:
 CONFIG=$(./bench-detect-config.sh)      # prints A, B or C; non-zero if unsure
 ```
 
-**Current headroom** (re-measured 2026-09-01, after Test 2's thermal gating;
-`03b` and `03c` re-measured 2026-09-13 after their header comments changed):
-`assemble-image.sh` **400**, `verify-image.sh` **399**, `layout.sh` **399**,
-`molniya-health-check.sh` **399**, `build-rootfs.sh` **399**,
-`run-sdr-bench.sh` **398**, `tle-updater.sh` **397**,
-`run-latency-bench.sh` **396**, `molniya-boot-backend.sh` 386,
-`install-kernel.sh` 383, `rtl-power-heatmap.py` **377**,
-`02c-sdr-userspace.sh` 352, `01-build-kernel.sh` 329, `build-image.sh` 329,
-`build-bundle.sh` 266, `install-tle-timer.sh` 249, `10-molniya.sh` 242,
-`make-keys.sh` 238, `03a-gnuradio-stack.sh` 227, `inject-keyring.sh` 220,
-`thermal-state.sh` 207, `03b-satdump.sh` 205, `03c-sdrpp.sh` 205,
-`verify-rauc.sh` 199, `02a-verify-kernel.sh` 198, `fetch-base.sh` 194,
-`slot-identity.sh` 157.
+**Current headroom** (re-measured 2026-09-27, when Test 2's own growth fired the
+trigger; now **exhaustive** over `git ls-files '*.sh' '*.py'`, the gate's own scope,
+rather than a hand-picked subset that quietly omitted the `gr-molniya` modules):
+`assemble-image.sh` **400**, `build-rootfs.sh` **399**, `layout.sh` **399**,
+`molniya-health-check.sh` **399**, `verify-image.sh` **399**, `tle-updater.sh`
+**397**, `run-latency-bench.sh` **396**, `molniya-boot-backend.sh` 386,
+`run-sdr-bench.sh` 386, `install-kernel.sh` 383, `02e-harden-flash.sh` 380,
+`rtl-power-heatmap.py` **377**, `01-build-kernel.sh` 352,
+`02c-sdr-userspace.sh` 352, `build-image.sh` 329, `build-bundle.sh` 266,
+`install-tle-timer.sh` 249, `10-molniya.sh` 242, `make-keys.sh` 238,
+`03a-gnuradio-stack.sh` 227, `inject-keyring.sh` 220, `thermal-state.sh` 207,
+`03b-satdump.sh` 205, `03c-sdrpp.sh` 205, `verify-rauc.sh` 199,
+`02a-verify-kernel.sh` 198, `fetch-base.sh` 194, `test_gap_math.py` 185,
+`discontinuity_probe.py` 174, `package-kernel.sh` 168, `install.sh` 166,
+`provision-rauc.sh` 163, `gap_math.py` 158, `slot-identity.sh` 157,
+`install-governor.sh` 151, `03-satcom-stack.sh` 102, `rtl-loss.sh` 99,
+`02-post-install.sh` 97, `build-satcom.sh` 92, `molniya-mark-good.sh` 74,
+`02d-locale-ru.sh` 64, `molniya-set-governor.sh` 61, `detect-config.sh` 56,
+`sdr-preflight.sh` 50, `02b-bench-tools.sh` 48, `governor.sh` 46,
+`__init__.py` 11.
 
-⚠️ **Eight files now have ten lines of room or fewer, and `assemble-image.sh` is
+⚠️ **Seven files now have ten lines of room or fewer, and `assemble-image.sh` is
 AT the cap at exactly 400.** The rename moved several counts by a line or two in
 each direction — the new name is two characters longer than the old one, and
 reflowed comments do not come out even.
@@ -780,6 +787,53 @@ they can't keep up at full sample rate. Planned blocks live under `gr-molniya/`
 except where noted (see Phase 2c for the independence rule on IceSickle).
 
 ---
+
+### ✅ The rule fired again, 2026-09-27 — Test 2, and it needed two helpers
+
+`run-sdr-bench.sh` reached **456 lines** and could not lose them anywhere: its
+header rationale is load-bearing and the parsing commentary is the record of a bug
+that was fixed twice. So the trigger fired as written, for the second time on this
+file.
+
+**What made it unusual is that one extraction was not enough.** The file had to shed
+at least 56 lines and the obvious seam — the result parsing — bought only 52. That
+arithmetic is the whole argument for the second helper; without it the cap alone
+would not have justified `sdr-preflight.sh`, and the rule would have said no.
+
+| Helper | Lines | Interface |
+|---|---|---|
+| `benchmarks/rtl-loss.sh` | 99 | `read <raw>` prints `ppm=<N\|unknown> bytes=<N> samples=<N>` |
+| `benchmarks/sdr-preflight.sh` | 50 | no arguments; silent and exit 0 if ready, else why on stderr |
+
+`run-sdr-bench.sh` came out at **386**, and Test 2's raw-header and verdict logic
+stayed put deliberately.
+
+**A third seam was considered and rejected**, which is worth recording because it
+is the shape the rule warns about. The provenance block that writes each raw's
+`# config:`/`# rate:`/`# thermal before:` header is nearly duplicated in
+`run-latency-bench.sh` — but it needs seven caller values, and the two harnesses'
+field sets genuinely differ (`rate`/`duration`/`rfkill` against
+`affinity`/`uname -v`/`command`). A helper there would buy a shared file and cost
+the thing the rule exists to protect: two harnesses that each read as one file.
+Duplication under the cap that has not caused a bug is still cheaper.
+
+**The dangling-call check the last firing asked for was run, and it needed care.**
+`grep`ping the moved names to zero is not enough here, because `lost_ppm` also
+appears as a **TSV column name** in the summary header that every result row is
+written against. A sweep-and-replace would have changed the output schema of a
+completed 24-run matrix while looking like tidy-up. The check has to target
+*invocations*; the string at `run-sdr-bench.sh:387` is data and must stay.
+
+**Verified before commit**, since the rule's own failure mode is a split that looks
+right and is not: the parser was run over a **27-row golden master** — all 24
+preserved Test 2 raws, both smoke rows, and the `parsecheck.txt` positive control —
+and reproduced every figure **identically**, including the `ppm=unknown` case that
+must never collapse to `0`. `shellcheck -S style` clean at the CI-pinned 0.10.0 over
+every `benchmarks/*.sh`, and all four gates reproduced locally. The full `--quick`
+run is **not** part of that evidence: `sudo -v` needs a password on pi-server and
+there is no tty over ssh, so the harness aborts at that gate. It does get past
+`sdr-preflight.sh` first, which is the new call site.
+
 
 ## Architecture & Extensibility (adopted 2026-07-30)
 
