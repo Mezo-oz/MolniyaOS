@@ -11,7 +11,9 @@
 #   sudo bash automation/install-tle-timer.sh --uninstall
 #
 # WHAT IT CHANGES, exhaustively:
-#   installs  /usr/local/bin/molniya-tle-update           (tle-updater.sh)
+#   installs  /usr/local/lib/molniya-tle/tle-updater.sh
+#   installs  /usr/local/lib/molniya-tle/atomic-write.sh  (its helper)
+#   links     /usr/local/bin/molniya-tle-update -> the updater above
 #   installs  /etc/systemd/system/molniya-tle-update@.service
 #   installs  /etc/systemd/system/molniya-tle-update@.timer
 #   enables   molniya-tle-update@<user>.timer
@@ -33,6 +35,12 @@
 #   first evidence the unit works at all would arrive up to twelve hours later
 #   — and a ground station that discovers its element source is broken during a
 #   pass has discovered it too late. --no-run skips it for an offline install.
+#
+# WHY A DIRECTORY AND A SYMLINK, NOT ONE FILE IN /usr/local/bin:
+#   The updater calls atomic-write.sh from its own directory. Copied alone into
+#   /usr/local/bin it would fetch, validate, back up — and then die at the first
+#   write with no helper beside it. Both files keep their repo names in one
+#   directory, and the command name the unit runs is a symlink to it.
 # ============================================================================
 
 set -euo pipefail
@@ -40,6 +48,8 @@ set -euo pipefail
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SCRIPT_SRC="$SELF_DIR/tle-updater.sh"
+HELPER_SRC="$SELF_DIR/atomic-write.sh"
+LIB_DIR="/usr/local/lib/molniya-tle"
 SCRIPT_DST="/usr/local/bin/molniya-tle-update"
 SERVICE_SRC="$SELF_DIR/molniya-tle-update@.service"
 SERVICE_DST="/etc/systemd/system/molniya-tle-update@.service"
@@ -153,6 +163,7 @@ uninstall() {
     done
 
     rm -f "$TIMER_DST" "$SERVICE_DST" "$SCRIPT_DST"
+    rm -rf "$LIB_DIR"
     systemctl daemon-reload
 
     echo ""
@@ -172,10 +183,10 @@ resolve_user
 TIMER_INSTANCE="${UNIT_BASE}@${TARGET_USER}.timer"
 SERVICE_INSTANCE="${UNIT_BASE}@${TARGET_USER}.service"
 
-for f in "$SCRIPT_SRC" "$SERVICE_SRC" "$TIMER_SRC"; do
+for f in "$SCRIPT_SRC" "$HELPER_SRC" "$SERVICE_SRC" "$TIMER_SRC"; do
     if [ ! -f "$f" ]; then
         echo "ERROR: missing $f" >&2
-        echo "       Run this from a clone of the repo; it installs the three" >&2
+        echo "       Run this from a clone of the repo; it installs the four" >&2
         echo "       files that sit beside it." >&2
         exit 1
     fi
@@ -196,7 +207,11 @@ report_home
 echo ""
 
 echo "[1/4] Installing $SCRIPT_DST"
-install -m 0755 -o root -g root "$SCRIPT_SRC" "$SCRIPT_DST"
+install -d -m 0755 -o root -g root "$LIB_DIR"
+install -m 0755 -o root -g root "$SCRIPT_SRC" "$HELPER_SRC" "$LIB_DIR/"
+# -n: replace an existing link rather than following it. An install from
+# before 2026-10-06 left a plain file here; -f replaces that too.
+ln -sfn "$LIB_DIR/tle-updater.sh" "$SCRIPT_DST"
 
 echo "[2/4] Installing the units"
 install -m 0644 -o root -g root "$SERVICE_SRC" "$SERVICE_DST"

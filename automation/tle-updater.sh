@@ -86,6 +86,10 @@ GROUP_DIR="$HOME/.config/satellite-tle"
 
 BASE_URL="https://celestrak.org/NORAD/elements/gp.php"
 
+# Both destinations are replaced through this, never written in place (standard
+# 9). readlink -f: the timer runs this file through a /usr/local/bin symlink.
+ATOMIC_WRITE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/atomic-write.sh"
+
 # predict's documented ceiling on simultaneously tracked satellites. Enforced
 # below rather than trusted, because exceeding it fails quietly.
 PREDICT_MAX_SATS=24
@@ -110,11 +114,8 @@ while [ "$#" -gt 0 ]; do
         --dry-run)      DRY_RUN=1; shift ;;
         --predict-only) PREDICT_ONLY=1; shift ;;
         -h|--help)
-            # Print the header block: comment lines from line 3 -- past the
-            # shebang and the SPDX line, which every script in this repo carries
-            # in that order -- until the first line that is not a comment.
-            # Self-maintaining: a fixed line range goes wrong the moment the
-            # header is edited, and this header has already been edited twice.
+            # Print the header: comment lines from line 3 (past the shebang and
+            # SPDX line) to the first non-comment, so editing it cannot break it.
             sed -n '3,$p' "$0" | sed -n '/^#/!q;p' | sed 's/^# \{0,1\}//'
             exit 0
             ;;
@@ -328,7 +329,7 @@ if [ "$DRY_RUN" -eq 0 ]; then
             | xargs -0 -r rm -f
     fi
 
-    install -m 0644 "$PREDICT_STAGE" "$PREDICT_TLE"
+    "$ATOMIC_WRITE" "$PREDICT_TLE" < "$PREDICT_STAGE"
     echo "       installed $PREDICT_TLE"
 else
     echo "       (dry run — would install $PREDICT_TLE)"
@@ -360,7 +361,7 @@ else
 
         if [ "$DRY_RUN" -eq 0 ]; then
             mkdir -p "$GROUP_DIR"
-            tr -d '\r' < "$staged" > "$GROUP_DIR/$group.tle"
+            tr -d '\r' < "$staged" | "$ATOMIC_WRITE" "$GROUP_DIR/$group.tle"
             echo "         installed $GROUP_DIR/$group.tle"
         fi
 

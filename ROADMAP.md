@@ -548,9 +548,35 @@ labelled.
 recover samples that were in flight. It makes "short" and "cut off" two different
 facts on the filesystem instead of one ambiguous file.
 
-#### ⚠️ Known sites that do not follow it yet (found 2026-09-27)
+#### ✅ Known sites that did not follow it (found 2026-09-27, fixed 2026-10-06)
 
-`automation/tle-updater.sh` has two, and they are worth stating precisely because
+**Fixed 2026-10-06 by extraction, as the rule required.** Both sites now pipe into
+`automation/atomic-write.sh <dest> [mode]`, an executable helper that stages in the
+destination's own directory as `<dest>.XXXXXX.part`, refuses empty input, syncs
+the file, renames over the destination and syncs the directory. `tle-updater.sh`
+went 397 → 398. The record below is kept as found.
+
+**The trap this extraction had, and that grep would not have found:**
+`install-tle-timer.sh` copied `tle-updater.sh` *alone* to
+`/usr/local/bin/molniya-tle-update`, so the installed updater would have fetched,
+validated, backed up — and died at the first write with no helper beside it. The
+installer now puts both files in `/usr/local/lib/molniya-tle/` and makes the
+command name a symlink; the updater finds its helper through `readlink -f`. When
+extracting from any installed script, check where its installer puts it.
+
+**Verified on pi-server**, shellcheck 0.10.0 clean on all three files. The helper
+was tested with: normal write, mode, empty input (refused, old kept), missing
+directory, a directory at the destination, SIGKILL mid-write (old kept, a `.part`
+left), SIGTERM mid-write, and a check that the inode changes. The updater was run
+end to end through an installer-shaped symlink against live CelesTrak: 5
+satellites with LF line endings, 3 groups, no partials left. A negative control
+with the helper removed exits 127 with `predict.tle` byte-identical.
+
+**Not covered by the helper, on purpose:** captures. It deletes its partial on
+failure, which standard 9 forbids for a capture, so the capture pipeline needs its
+own staging rather than this as written.
+
+`automation/tle-updater.sh` had two, and they are worth stating precisely because
 one of them is a silent-wrong-answer bug rather than a lost file:
 
 - **Line 330**, `install -m 0644 "$PREDICT_STAGE" "$PREDICT_TLE"` — `install`
@@ -665,14 +691,15 @@ CONFIG=$(./bench-detect-config.sh)      # prints A, B or C; non-zero if unsure
 
 **Current headroom** (re-measured 2026-09-27, when Test 2's own growth fired the
 trigger; now **exhaustive** over `git ls-files '*.sh' '*.py'`, the gate's own scope,
-rather than a hand-picked subset that quietly omitted the `gr-molniya` modules):
+rather than a hand-picked subset that quietly omitted the `gr-molniya` modules;
+the three TLE files touched by the 2026-10-06 standard-9 fix re-measured then):
 `assemble-image.sh` **400**, `build-rootfs.sh` **399**, `layout.sh` **399**,
 `molniya-health-check.sh` **399**, `verify-image.sh` **399**, `tle-updater.sh`
-**397**, `run-latency-bench.sh` **396**, `molniya-boot-backend.sh` 386,
+**398**, `run-latency-bench.sh` **396**, `molniya-boot-backend.sh` 386,
 `run-sdr-bench.sh` 386, `install-kernel.sh` 383, `02e-harden-flash.sh` 380,
 `rtl-power-heatmap.py` **377**, `01-build-kernel.sh` 352,
 `02c-sdr-userspace.sh` 352, `build-image.sh` 329, `build-bundle.sh` 266,
-`install-tle-timer.sh` 249, `10-molniya.sh` 242, `make-keys.sh` 238,
+`install-tle-timer.sh` 264, `10-molniya.sh` 242, `make-keys.sh` 238,
 `03a-gnuradio-stack.sh` 227, `inject-keyring.sh` 220, `thermal-state.sh` 207,
 `03b-satdump.sh` 205, `03c-sdrpp.sh` 205, `verify-rauc.sh` 199,
 `02a-verify-kernel.sh` 198, `fetch-base.sh` 194, `test_gap_math.py` 185,
@@ -680,7 +707,7 @@ rather than a hand-picked subset that quietly omitted the `gr-molniya` modules):
 `provision-rauc.sh` 163, `gap_math.py` 158, `slot-identity.sh` 157,
 `install-governor.sh` 151, `03-satcom-stack.sh` 102, `rtl-loss.sh` 99,
 `02-post-install.sh` 97, `build-satcom.sh` 92, `molniya-mark-good.sh` 74,
-`02d-locale-ru.sh` 64, `molniya-set-governor.sh` 61, `detect-config.sh` 56,
+`atomic-write.sh` 69, `02d-locale-ru.sh` 64, `molniya-set-governor.sh` 61, `detect-config.sh` 56,
 `sdr-preflight.sh` 50, `02b-bench-tools.sh` 48, `governor.sh` 46,
 `__init__.py` 11.
 
