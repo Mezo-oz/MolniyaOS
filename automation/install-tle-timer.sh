@@ -11,15 +11,15 @@
 #   sudo bash automation/install-tle-timer.sh --uninstall
 #
 # WHAT IT CHANGES, exhaustively:
-#   installs  /usr/local/lib/molniya-tle/tle-updater.sh
-#   installs  /usr/local/lib/molniya-tle/atomic-write.sh  (its helper)
-#   links     /usr/local/bin/molniya-tle-update -> the updater above
-#   installs  /etc/systemd/system/molniya-tle-update@.service
-#   installs  /etc/systemd/system/molniya-tle-update@.timer
+#   installs  every file `tle-files.sh list` names -- the updater and its
+#             helper in /usr/local/lib/molniya-tle/, the molniya-tle-update
+#             command linked to it, and the template service + timer
 #   enables   molniya-tle-update@<user>.timer
 #   runs      one update immediately, unless --no-run
 #
-# Nothing else. --uninstall reverses all of it.
+# Nothing else. --uninstall reverses all of it. The layout itself lives in
+# tle-files.sh because the image build installs the same files into every slot;
+# this script owns only what needs a running system.
 #
 # WHICH USER, AND WHY IT IS NOT ROOT:
 #   The updater writes ~/.predict/predict.tle and ~/.config/satellite-tle/.
@@ -47,14 +47,7 @@ set -euo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-SCRIPT_SRC="$SELF_DIR/tle-updater.sh"
-HELPER_SRC="$SELF_DIR/atomic-write.sh"
-LIB_DIR="/usr/local/lib/molniya-tle"
-SCRIPT_DST="/usr/local/bin/molniya-tle-update"
-SERVICE_SRC="$SELF_DIR/molniya-tle-update@.service"
-SERVICE_DST="/etc/systemd/system/molniya-tle-update@.service"
-TIMER_SRC="$SELF_DIR/molniya-tle-update@.timer"
-TIMER_DST="/etc/systemd/system/molniya-tle-update@.timer"
+TLE_FILES="$SELF_DIR/tle-files.sh"
 UNIT_BASE="molniya-tle-update"
 
 TARGET_USER=""
@@ -162,8 +155,7 @@ uninstall() {
         systemctl disable --now "$instance" 2>/dev/null || true
     done
 
-    rm -f "$TIMER_DST" "$SERVICE_DST" "$SCRIPT_DST"
-    rm -rf "$LIB_DIR"
+    "$TLE_FILES" remove /
     systemctl daemon-reload
 
     echo ""
@@ -183,14 +175,13 @@ resolve_user
 TIMER_INSTANCE="${UNIT_BASE}@${TARGET_USER}.timer"
 SERVICE_INSTANCE="${UNIT_BASE}@${TARGET_USER}.service"
 
-for f in "$SCRIPT_SRC" "$HELPER_SRC" "$SERVICE_SRC" "$TIMER_SRC"; do
-    if [ ! -f "$f" ]; then
-        echo "ERROR: missing $f" >&2
-        echo "       Run this from a clone of the repo; it installs the four" >&2
-        echo "       files that sit beside it." >&2
-        exit 1
-    fi
-done
+# tle-files.sh checks its own sources before writing anything; this checks
+# only that it is here to ask.
+if [ ! -x "$TLE_FILES" ]; then
+    echo "ERROR: missing or not executable: $TLE_FILES" >&2
+    echo "       Run this from a clone of the repo." >&2
+    exit 1
+fi
 
 if ! command -v curl > /dev/null 2>&1 && ! command -v wget > /dev/null 2>&1; then
     echo "ERROR: neither curl nor wget is installed — the updater needs one." >&2
@@ -206,22 +197,15 @@ echo "  Target user: $TARGET_USER"
 report_home
 echo ""
 
-echo "[1/4] Installing $SCRIPT_DST"
-install -d -m 0755 -o root -g root "$LIB_DIR"
-install -m 0755 -o root -g root "$SCRIPT_SRC" "$HELPER_SRC" "$LIB_DIR/"
-# -n: replace an existing link rather than following it. An install from
-# before 2026-10-06 left a plain file here; -f replaces that too.
-ln -sfn "$LIB_DIR/tle-updater.sh" "$SCRIPT_DST"
+echo "[1/3] Installing the updater and its units"
+"$TLE_FILES" list | cut -f2 | sed 's/^/        /'
+"$TLE_FILES" install /
 
-echo "[2/4] Installing the units"
-install -m 0644 -o root -g root "$SERVICE_SRC" "$SERVICE_DST"
-install -m 0644 -o root -g root "$TIMER_SRC" "$TIMER_DST"
-
-echo "[3/4] Enabling $TIMER_INSTANCE"
+echo "[2/3] Enabling $TIMER_INSTANCE"
 systemctl daemon-reload
 systemctl enable --now "$TIMER_INSTANCE"
 
-echo "[4/4] First update"
+echo "[3/3] First update"
 if [ "$RUN_NOW" -eq 0 ]; then
     echo "       skipped (--no-run). Nothing has proven the unit works yet;"
     echo "       run it by hand when the box is online:"

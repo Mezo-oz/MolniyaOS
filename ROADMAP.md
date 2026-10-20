@@ -689,24 +689,79 @@ detection returns the configuration letter on stdout:
 CONFIG=$(./bench-detect-config.sh)      # prints A, B or C; non-zero if unsure
 ```
 
+### ✅ The rule fired again, 2026-10-20 — the image never shipped the TLE units
+
+The health check has treated `molniya-tle-update@.service` and `.timer` as
+**CRITICAL** since 4d, and nothing in `image/` ever installed them. Every slot the
+image build produced would therefore have failed its own health check on every
+boot, and no update could have been marked good. It went unseen because the only
+end-to-end HEALTHY run used a throwaway harness that supplied the missing pieces.
+
+Fixing it had to touch `assemble-image.sh` at **400/400**, so the rule fired. The
+shape was chosen for the drift risk, not the line count. The refresh now has
+**three** consumers: the bench installer, the image build, and image
+verification. The 2026-10-06 trap (the updater copied without its helper) was
+already one case of two copies of this layout disagreeing. So the layout is
+stated once:
+
+| Helper | Lines | Interface |
+|---|---|---|
+| `automation/tle-files.sh` | 119 | `list [user]` prints the manifest; `install <root> [user]`, `remove <root>` act on it |
+| `image/provision-components.sh` | 75 | `<slot-root> [login-user]`: health check + TLE refresh into one slot |
+| `image/verify-components.sh` | 92 | `<slot-root> <login-user>`: PASS/FAIL lines, same contract as `verify-rauc.sh` |
+
+- **Paths and link targets are as seen on the box**, never prefixed with the build
+  root. A link written as `$MNT/rootA/usr/local/lib/...` resolves on the build
+  host and dangles on every card. The verifier checks the literal target, and a
+  negative control with exactly that link fails.
+- **The timer instance is enabled only when access is provisioned**
+  (`${AUTHORIZED_KEYS:+$LOGIN_USER}`). A keyless image keeps the locked `pi`
+  placeholder, and an instance for it would maintain elements nobody reads. The
+  units ship either way; a missing instance is the health check's ADVISORY tier.
+- **No first update at build time**: there is no network. `Persistent=true` and
+  `After=network-online.target` make the first networked boot fetch.
+- `verify-image.sh`'s `verify_rauc` became `verify_with <helper> <args...>`, so
+  both slot helpers render and tally through one loop. The two health-check
+  assertions moved to `verify-components.sh` with the install they check.
+
+**Verified on pi-server**, shellcheck 0.10.0 clean on all six files. Against a
+bare slot root: positive (17/17 PASS), plus negative controls for a missing helper,
+a host-prefixed link, a wrong mode, no curl/wget, a keyless build (only the
+enable link fails), an unknown user (refused), a missing source (refused before
+writing a byte), and a non-root caller (refused). The test **found a real bug**:
+`install(1)` does not create parents, so the units failed on a root without
+`/etc/systemd/system`. The live installer was then uninstalled (nothing left) and
+reinstalled on the new code: timer enabled + active, first run exit 0, and
+`systemctl enable`'s link is identical to the manifest's.
+
+**Not yet verified:** a full image build with `verify-image.sh` run over it.
+Whether the stock base ships curl or wget is now a check rather than an
+assumption. The cached rootfs on pi-server is a stub, so it could not be read.
+
+**Same gap, not fixed:** `molniya-governor.service` is not installed by the image
+either. The health check does not gate on it, so nothing fails. When it lands,
+it belongs in `provision-components.sh`.
+
 **Current headroom** (re-measured 2026-09-27, when Test 2's own growth fired the
 trigger; now **exhaustive** over `git ls-files '*.sh' '*.py'`, the gate's own scope,
 rather than a hand-picked subset that quietly omitted the `gr-molniya` modules;
-the three TLE files touched by the 2026-10-06 standard-9 fix re-measured then):
-`assemble-image.sh` **400**, `build-rootfs.sh` **399**, `layout.sh` **399**,
-`molniya-health-check.sh` **399**, `verify-image.sh` **399**, `tle-updater.sh`
+the three TLE files touched by the 2026-10-06 standard-9 fix re-measured then, and
+the four files of the 2026-10-20 extraction re-measured then):
+`verify-image.sh` **400**, `build-rootfs.sh` **399**, `layout.sh` **399**,
+`molniya-health-check.sh` **399**, `assemble-image.sh` **397**, `tle-updater.sh`
 **398**, `run-latency-bench.sh` **396**, `molniya-boot-backend.sh` 386,
 `run-sdr-bench.sh` 386, `install-kernel.sh` 383, `02e-harden-flash.sh` 380,
 `rtl-power-heatmap.py` **377**, `01-build-kernel.sh` 352,
 `02c-sdr-userspace.sh` 352, `build-image.sh` 329, `build-bundle.sh` 266,
-`install-tle-timer.sh` 264, `10-molniya.sh` 242, `make-keys.sh` 238,
+`install-tle-timer.sh` 248, `10-molniya.sh` 242, `make-keys.sh` 238,
 `03a-gnuradio-stack.sh` 227, `inject-keyring.sh` 220, `thermal-state.sh` 207,
 `03b-satdump.sh` 205, `03c-sdrpp.sh` 205, `verify-rauc.sh` 199,
 `02a-verify-kernel.sh` 198, `fetch-base.sh` 194, `test_gap_math.py` 185,
 `discontinuity_probe.py` 174, `package-kernel.sh` 168, `install.sh` 166,
-`provision-rauc.sh` 163, `gap_math.py` 158, `slot-identity.sh` 157,
+`provision-rauc.sh` 163, `gap_math.py` 158, `tle-files.sh` 119, `slot-identity.sh` 157,
 `install-governor.sh` 151, `03-satcom-stack.sh` 102, `rtl-loss.sh` 99,
-`02-post-install.sh` 97, `build-satcom.sh` 92, `molniya-mark-good.sh` 74,
+`02-post-install.sh` 97, `build-satcom.sh` 92, `verify-components.sh` 92,
+`provision-components.sh` 75, `molniya-mark-good.sh` 74,
 `atomic-write.sh` 69, `02d-locale-ru.sh` 64, `molniya-set-governor.sh` 61, `detect-config.sh` 56,
 `sdr-preflight.sh` 50, `02b-bench-tools.sh` 48, `governor.sh` 46,
 `__init__.py` 11.
@@ -3752,6 +3807,7 @@ MolniyaOS/
 │   ├── ✅ tle-updater.sh        # TLE refresh; writes ~/.predict/predict.tle
 │   ├── ✅ molniya-tle-update@.service # The refresh as a unit; instance = username
 │   ├── ✅ molniya-tle-update@.timer   # Twice daily, spread, persistent
+│   ├── ✅ tle-files.sh          # The refresh's file layout, stated once (helper)
 │   ├── ✅ install-tle-timer.sh  # Installs the timer for one account
 │   ├── ✅ rtl-power-heatmap.py  # rtl_power CSV → spectrum heatmap PNG
 │   ├── ✅ molniya-governor.service  # Pins the CPU governor at boot
@@ -3776,6 +3832,8 @@ MolniyaOS/
 │   ├── ✅ assemble-image.sh     # Stage 3: A/B image per layout.sh
 │   ├── ✅ build-image.sh        # Stage 4: sequencer → .img.gz
 │   ├── ✅ verify-image.sh       # Assertions over a finished .img; read-only
+│   ├── ✅ provision-components.sh # Health check + TLE refresh into one slot root
+│   ├── ✅ verify-components.sh  # ...and the check for it (PASS/FAIL lines)
 │   ├── ✅ build-bundle.sh       # Signed .raucb from a built image (tars, verity)
 │   ├── ✅ inject-keyring.sh     # One-shot: keyring into an image built without one
 │   ├── rauc/                    # The A/B update machinery (4d)

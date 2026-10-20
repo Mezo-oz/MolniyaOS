@@ -234,8 +234,6 @@ verify_root() {
 
     check "modules for $kver" sudo test -d "$dir/lib/modules/$kver"
     check "depmod ran in $kver" sudo test -s "$dir/lib/modules/$kver/modules.dep"
-    check "health check installed" sudo test -x "$dir/usr/local/lib/molniya/molniya-health-check.sh"
-    check "slot-identity installed" sudo test -x "$dir/usr/local/lib/molniya/slot-identity.sh"
 
     # RELEASE ONLY. A module tree whose kernel is not in this slot's bootfs can
     # never be loaded by anything -- stage 3 deleted the stock kernels, so the
@@ -302,7 +300,8 @@ verify_access() {
 # p7 — shared by both slots and survives every update, so it is seeded with
 # mount points rather than content.
 # ----------------------------------------------------------------------------
-# The A/B update machinery (ROADMAP 4d) lives in verify-rauc.sh.
+# The A/B update machinery (ROADMAP 4d) lives in verify-rauc.sh, and the
+# on-box components -- health check, TLE refresh -- in verify-components.sh.
 #
 # It moved out when the keyring checks took this file from exactly 400 lines to
 # 468 -- over the cap, and a CI failure until the split. The extraction rule's
@@ -317,12 +316,12 @@ verify_access() {
 # counted: an explanatory line that increments the failure total makes one
 # defect read as two.
 # ----------------------------------------------------------------------------
-verify_rauc() {
-    local slot="$1" verdict desc
-    local helper="$SELF_DIR/verify-rauc.sh"
+verify_with() {
+    local helper="$SELF_DIR/$1" verdict desc
+    shift
 
     if [ ! -x "$helper" ]; then
-        bad "verify-rauc.sh is present and executable"
+        bad "$(basename "$helper") is present and executable"
         return 0
     fi
 
@@ -335,9 +334,9 @@ verify_rauc() {
             FAIL) bad "$desc" ;;
             NOTE) printf '        %s
 ' "$desc" ;;
-            *)    bad "verify-rauc.sh emitted an unreadable line: $verdict $desc" ;;
+            *)    bad "$(basename "$helper") emitted an unreadable line: $verdict $desc" ;;
         esac
-    done < <("$helper" "$MNT/root$slot" "$slot" "$TARGET_DEV")
+    done < <("$helper" "$@")
 }
 
 verify_data() {
@@ -378,11 +377,13 @@ main() {
     verify_boot A 2
     verify_root A 5 "$kver"
     verify_access A
-    verify_rauc A
+    verify_with verify-rauc.sh "$MNT/rootA" A "$TARGET_DEV"
+    verify_with verify-components.sh "$MNT/rootA" "$LOGIN_USER"
     verify_boot B 3
     verify_root B 6 "$kver"
     verify_access B
-    verify_rauc B
+    verify_with verify-rauc.sh "$MNT/rootB" B "$TARGET_DEV"
+    verify_with verify-components.sh "$MNT/rootB" "$LOGIN_USER"
     verify_data
 
     echo

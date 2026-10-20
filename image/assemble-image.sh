@@ -231,16 +231,13 @@ populate_root() {
     sudo mkdir -p "$MNT/root$slot/etc/molniya" "$MNT/root$slot/data"
     layout slotmap | sudo tee "$MNT/root$slot/etc/molniya/slots.conf" > /dev/null
 
-    # The health check and its helper ship inside the image; without them the
-    # slot cannot report itself healthy and no update could ever be committed.
     if [ -n "$AUTHORIZED_KEYS" ]; then
         provision_access "$MNT/root$slot" "$LOGIN_USER" "$AUTHORIZED_KEYS"
     fi
 
-    sudo mkdir -p "$MNT/root$slot/usr/local/lib/molniya"
-    sudo install -m 0755 "$SELF_DIR/health-check/molniya-health-check.sh" \
-        "$SELF_DIR/health-check/slot-identity.sh" \
-        "$MNT/root$slot/usr/local/lib/molniya/"
+    # Health check + TLE refresh, extracted at 400/400. See provision-components.sh.
+    # The timer needs a real account, so the user is passed only if access was made.
+    "$SELF_DIR/provision-components.sh" "$MNT/root$slot" "${AUTHORIZED_KEYS:+$LOGIN_USER}"
 
     # The A/B update machinery, extracted at 393/400. See rauc/provision-rauc.sh.
     "$SELF_DIR/rauc/provision-rauc.sh" "$MNT/root$slot" "$slot" "$TARGET_DEV"
