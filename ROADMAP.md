@@ -734,6 +734,20 @@ writing a byte), and a non-root caller (refused). The test **found a real bug**:
 reinstalled on the new code: timer enabled + active, first run exit 0, and
 `systemctl enable`'s link is identical to the manifest's.
 
+**The first attempt at that build, 2026-11-15, died two hours in** -- not on
+anything above, but in stage 2: SatDump's build dependencies pulled an
+`e2fsprogs` upgrade whose trigger ran `mkinitramfs`, which cannot determine a
+root device inside a chroot, and dpkg failed. The initrd belonged to the stock
+kernel stage 3 deletes. August's build passed only because the archive had not
+moved yet, so this was latent, and it exposes a wider gap: **the chroot's apt is
+not pinned** (the same run also took `openssl` 3.5.6 -> 3.5.9), which standard 7
+says is a positioning bug. Fixed by `image/chroot-guards.sh`, extracted from
+`build-rootfs.sh` at 399: it owns the three file guards (policy-rc.d, resolv.conf,
+and now `update-initramfs` diverted to a no-op with `dpkg-divert --rename`).
+Tested on the failed rootfs itself: with the guard, `dpkg --configure -a`
+completes; removed, the real binary is back byte-identical and `dpkg --verify`
+is clean. Pinning the chroot's apt is not done.
+
 **Not yet verified:** a full image build with `verify-image.sh` run over it.
 Whether the stock base ships curl or wget is now a check rather than an
 assumption. The cached rootfs on pi-server is a stub, so it could not be read.
@@ -767,18 +781,18 @@ the three TLE files touched by the 2026-10-06 standard-9 fix re-measured then, a
 the four files of the 2026-10-20 extraction re-measured then, and the four
 files of the 2026-11-15 governor fix and the six of the `$HOME`-on-p7 fix
 re-measured then):
-`build-rootfs.sh` **399**, `layout.sh` **399**,
+`layout.sh` **399**,
 `molniya-health-check.sh` **399**, `assemble-image.sh` 392, `tle-updater.sh`
 **398**, `run-latency-bench.sh` **396**, `molniya-boot-backend.sh` 386,
 `run-sdr-bench.sh` 386, `install-kernel.sh` 394, `02e-harden-flash.sh` 380,
 `rtl-power-heatmap.py` **377**, `01-build-kernel.sh` 352,
-`02c-sdr-userspace.sh` 352, `verify-image.sh` 390, `build-image.sh` 329, `build-bundle.sh` 266,
+`build-rootfs.sh` 383, `02c-sdr-userspace.sh` 352, `verify-image.sh` 390, `build-image.sh` 329, `build-bundle.sh` 266,
 `install-tle-timer.sh` 248, `10-molniya.sh` 242, `make-keys.sh` 238,
 `03a-gnuradio-stack.sh` 227, `inject-keyring.sh` 220, `thermal-state.sh` 207,
 `03b-satdump.sh` 205, `03c-sdrpp.sh` 205, `verify-rauc.sh` 199,
 `02a-verify-kernel.sh` 198, `fetch-base.sh` 194, `test_gap_math.py` 185,
 `discontinuity_probe.py` 174, `package-kernel.sh` 168, `test-install-revert.sh` 154, `install.sh` 166,
-`provision-rauc.sh` 163, `gap_math.py` 158, `tle-files.sh` 119, `slot-identity.sh` 157,
+`provision-rauc.sh` 163, `chroot-guards.sh` 88, `gap_math.py` 158, `tle-files.sh` 119, `slot-identity.sh` 157,
 `install-governor.sh` 149, `03-satcom-stack.sh` 102, `rtl-loss.sh` 99,
 `02-post-install.sh` 97, `build-satcom.sh` 92, `verify-components.sh` 131, `verify-data.sh` 87,
 `provision-components.sh` 109, `seed-data.sh` 57, `governor-files.sh` 97, `molniya-mark-good.sh` 74,

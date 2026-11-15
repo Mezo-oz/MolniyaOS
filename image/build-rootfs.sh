@@ -205,29 +205,13 @@ chroot_prepare() {
     mount_into /dev/pts "$ROOTFS/dev/pts" --bind
     mount_into proc "$ROOTFS/proc" -t proc
     mount_into sysfs "$ROOTFS/sys" -t sysfs
-
-    # apt needs working DNS inside the chroot, so the host's resolv.conf goes in
-    # for the duration and the image's own is put back by chroot_finish. It is
-    # saved rather than regenerated because shipping the BUILD HOST's nameservers
-    # inside the image would be a real leak: every flashed card would carry
-    # whatever DNS this machine happened to use. Verified after a full run that
-    # the restored file is byte-identical to the pristine base image's, and that
-    # pi-server's own (1.1.1.1, NetworkManager-generated) did not survive.
-    sudo cp -a "$ROOTFS/etc/resolv.conf" "$ROOTFS/etc/resolv.conf.molniya-bak" 2>/dev/null || true
-    sudo cp -L /etc/resolv.conf "$ROOTFS/etc/resolv.conf"
-
-    # Stop packages starting daemons during installation. Inside a chroot a
-    # service start either fails noisily or, worse, succeeds and leaves a
-    # process running against the host's PID 1.
-    printf '#!/bin/sh\nexit 101\n' | sudo tee "$ROOTFS/usr/sbin/policy-rc.d" > /dev/null
-    sudo chmod +x "$ROOTFS/usr/sbin/policy-rc.d"
+    # policy-rc.d, the host's resolv.conf, and update-initramfs diverted to a
+    # no-op. Each is undone exactly; see chroot-guards.sh for why each exists.
+    "$SELF_DIR/chroot-guards.sh" install "$ROOTFS" || die "chroot guards failed"
 }
 
 chroot_finish() {
-    sudo rm -f "$ROOTFS/usr/sbin/policy-rc.d"
-    if [ -e "$ROOTFS/etc/resolv.conf.molniya-bak" ]; then
-        sudo mv "$ROOTFS/etc/resolv.conf.molniya-bak" "$ROOTFS/etc/resolv.conf"
-    fi
+    "$SELF_DIR/chroot-guards.sh" remove "$ROOTFS" || die "chroot guards not removed"
 }
 
 in_chroot() {
