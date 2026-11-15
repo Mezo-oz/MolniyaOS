@@ -793,7 +793,7 @@ re-measured then):
 `02a-verify-kernel.sh` 198, `fetch-base.sh` 194, `test_gap_math.py` 185,
 `discontinuity_probe.py` 174, `package-kernel.sh` 168, `test-install-revert.sh` 154, `install.sh` 166,
 `provision-rauc.sh` 163, `chroot-guards.sh` 88, `gap_math.py` 158, `tle-files.sh` 119, `slot-identity.sh` 157,
-`install-governor.sh` 149, `03-satcom-stack.sh` 102, `rtl-loss.sh` 99,
+`install-governor.sh` 149, `03-satcom-stack.sh` 102, `adsb-libcmp.sh` 173, `adsb_libcmp.py` 140, `rtl-loss.sh` 99,
 `02-post-install.sh` 97, `build-satcom.sh` 92, `verify-components.sh` 131, `verify-data.sh` 87,
 `provision-components.sh` 109, `seed-data.sh` 57, `governor-files.sh` 97, `molniya-mark-good.sh` 74,
 `atomic-write.sh` 69, `02d-locale-ru.sh` 64, `molniya-set-governor.sh` 61, `detect-config.sh` 56,
