@@ -80,6 +80,14 @@ OS_PREFIX_DIR="molniya"
 # install config C — the exact mislabelling this variable is most able to cause.
 NOHZ_FULL_CPUS="${NOHZ_FULL_CPUS-1-3}"
 
+# A prefix for every path this writes, empty on a real Pi. It exists for one
+# caller, kernel/test-install-revert.sh, which installs into a fake boot
+# partition to prove the stock files survive and the revert is exact -- the
+# safety net is the whole argument for os_prefix, and until 2026-11-15 nothing
+# tested it except a reflash. Set, it also skips the is-this-a-Pi prompt: a
+# fixture is by definition not one.
+INSTALL_ROOT="${MOLNIYA_INSTALL_ROOT:-}"
+
 # === Sanity Checks ===
 echo -e "${GREEN}============================================${NC}"
 echo -e "${GREEN}  MolniyaOS Kernel Installer for Pi 5${NC}"
@@ -94,7 +102,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Check we're on a Pi
-if ! grep -q "Raspberry Pi" /proc/cpuinfo 2>/dev/null && \
+if [ -z "$INSTALL_ROOT" ] && ! grep -q "Raspberry Pi" /proc/cpuinfo 2>/dev/null && \
    ! grep -q "BCM2712" /proc/cpuinfo 2>/dev/null; then
     echo -e "${YELLOW}WARNING: This doesn't look like a Raspberry Pi.${NC}"
     read -r -p "Continue anyway? (y/N): " confirm
@@ -150,9 +158,9 @@ echo ""
 # === Pi 5 Boot Partition ===
 # On Pi OS, the boot partition is mounted at /boot/firmware/
 # Older Pi OS versions used /boot/ — we detect which one.
-BOOT_DIR="/boot/firmware"
+BOOT_DIR="$INSTALL_ROOT/boot/firmware"
 if [ ! -d "$BOOT_DIR" ]; then
-    BOOT_DIR="/boot"
+    BOOT_DIR="$INSTALL_ROOT/boot"
 fi
 
 if [ ! -f "$BOOT_DIR/config.txt" ]; then
@@ -259,14 +267,15 @@ echo "       Wrote $MOLNIYA_DIR/cmdline.txt"
 # Each kernel version has its own directory — they don't conflict.
 echo ""
 echo -e "${YELLOW}[4/5] Installing kernel modules...${NC}"
-cp -r "$SCRIPT_DIR/modules/lib/modules/"* /lib/modules/
-echo "       Installed modules to /lib/modules/$KERNEL_VERSION"
+mkdir -p "$INSTALL_ROOT/lib/modules"
+cp -r "$SCRIPT_DIR/modules/lib/modules/"* "$INSTALL_ROOT/lib/modules/"
+echo "       Installed modules to $INSTALL_ROOT/lib/modules/$KERNEL_VERSION"
 
 # Generate module dependency map
 # depmod scans all .ko files and builds a dependency graph so the kernel
 # knows "if you load module A, you also need modules B and C."
 # Like building a package dependency tree in apt.
-depmod "$KERNEL_VERSION"
+depmod -b "${INSTALL_ROOT:-/}" "$KERNEL_VERSION"
 echo "       Generated module dependency map"
 
 # === Step 5: Update config.txt ===
@@ -319,7 +328,9 @@ else
 
     # The block begins on the marker line with no blank line before it, so the
     # revert range deletes it exactly and restores config.txt byte-for-byte. A
-    # leading blank would survive the range and accumulate on every cycle.
+    # leading blank would survive the range and accumulate on every cycle. The
+    # one exception is the newline added just above, which sed cannot take back;
+    # kernel/test-install-revert.sh holds both cases to exactly this.
     #
     # The revert one-liner is deliberately NOT printed inside this block. It
     # names both markers, so a copy of it living between them gives sed an early

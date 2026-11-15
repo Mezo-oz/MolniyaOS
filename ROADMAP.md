@@ -770,14 +770,14 @@ re-measured then):
 `build-rootfs.sh` **399**, `layout.sh` **399**,
 `molniya-health-check.sh` **399**, `assemble-image.sh` 392, `tle-updater.sh`
 **398**, `run-latency-bench.sh` **396**, `molniya-boot-backend.sh` 386,
-`run-sdr-bench.sh` 386, `install-kernel.sh` 383, `02e-harden-flash.sh` 380,
+`run-sdr-bench.sh` 386, `install-kernel.sh` 394, `02e-harden-flash.sh` 380,
 `rtl-power-heatmap.py` **377**, `01-build-kernel.sh` 352,
 `02c-sdr-userspace.sh` 352, `verify-image.sh` 390, `build-image.sh` 329, `build-bundle.sh` 266,
 `install-tle-timer.sh` 248, `10-molniya.sh` 242, `make-keys.sh` 238,
 `03a-gnuradio-stack.sh` 227, `inject-keyring.sh` 220, `thermal-state.sh` 207,
 `03b-satdump.sh` 205, `03c-sdrpp.sh` 205, `verify-rauc.sh` 199,
 `02a-verify-kernel.sh` 198, `fetch-base.sh` 194, `test_gap_math.py` 185,
-`discontinuity_probe.py` 174, `package-kernel.sh` 168, `install.sh` 166,
+`discontinuity_probe.py` 174, `package-kernel.sh` 168, `test-install-revert.sh` 154, `install.sh` 166,
 `provision-rauc.sh` 163, `gap_math.py` 158, `tle-files.sh` 119, `slot-identity.sh` 157,
 `install-governor.sh` 149, `03-satcom-stack.sh` 102, `rtl-loss.sh` 99,
 `02-post-install.sh` 97, `build-satcom.sh` 92, `verify-components.sh` 131, `verify-data.sh` 87,
@@ -1180,6 +1180,20 @@ isolated before any published number is generated.
   `config.txt` is the only stock file modified, and it is written last, after
   every required file is confirmed present. Revert is a verified byte-identical
   restore.
+
+  ✅ **And CI now holds it there, since 2026-11-15.** `kernel/test-install-revert.sh`
+  runs the real installer into a fake boot partition (`MOLNIYA_INSTALL_ROOT`, the
+  one hook added to `install-kernel.sh`) and asserts every stock file is
+  byte-identical, `config.txt` is only appended to, a second install arms no second
+  block, the installer still prints the exact revert command tested, and that
+  command restores `config.txt`. Negative controls on pi-server: an installer
+  patched to copy one DTB over the stock one, and one that edits `config.txt` in
+  place, each go red. **It found the one exception to "byte-identical":** a stock
+  `config.txt` with no final newline gets one added, so the marker cannot weld onto
+  the last directive, and sed's whole-line delete cannot take it back. Harmless,
+  since Pi OS's file ends in a newline, and now stated in the installer and held
+  to exactly one byte by the test. What CI cannot show is that the firmware
+  honours `os_prefix` or that stock boots: that is the hardware drill, still open.
 - [x] **Settle the tickless claim** — *done, `43d8368`.* `nohz_full` and
   `rcu_nocbs` are appended to the MolniyaOS command line, default CPUs 1-3 with
   CPU 0 left as housekeeping. Configurable via `NOHZ_FULL_CPUS`, which the

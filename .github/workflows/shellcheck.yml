@@ -26,6 +26,9 @@
 #     the \r into config values)
 #   - no shell script over 400 lines, which is engineering standard 1
 #
+# And one test, because it guards the path nobody exercises until something has
+# already gone wrong: install-kernel.sh's revert. See kernel/test-install-revert.sh.
+#
 # Delete any of those steps if they get in the way; the shellcheck step is the
 # one that matters.
 # ============================================================================
@@ -125,7 +128,7 @@ jobs:
               # Only the files where a CR actually breaks something. Markdown is
               # deliberately not here: a CRLF in prose is harmless, and gating on
               # it would fail for anyone working from a Windows checkout.
-              *.sh|*.config|*.service|*.timer|*.yml|*.yaml|*.py|*.txt|*.cmake) ;;
+              *.sh|*.config|*.service|*.timer|*.mount|*.yml|*.yaml|*.py|*.txt|*.cmake) ;;
               *) continue ;;
             esac
             [ -f "$f" ] || continue
@@ -161,3 +164,9 @@ jobs:
             fi
           done < <(git ls-files '*.sh' '*.py')
           exit "$rc"
+
+      # The kernel installer's promise -- stock boot files untouched, revert is
+      # one sed away -- proven against a fake boot partition. Needs root because
+      # the installer refuses anything else; the runner's sudo is passwordless.
+      - name: install-kernel.sh revert path
+        run: sudo bash kernel/test-install-revert.sh
