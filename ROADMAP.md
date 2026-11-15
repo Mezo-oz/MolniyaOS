@@ -765,13 +765,14 @@ trigger; now **exhaustive** over `git ls-files '*.sh' '*.py'`, the gate's own sc
 rather than a hand-picked subset that quietly omitted the `gr-molniya` modules;
 the three TLE files touched by the 2026-10-06 standard-9 fix re-measured then, and
 the four files of the 2026-10-20 extraction re-measured then, and the four
-files of the 2026-11-15 governor fix re-measured then):
-`verify-image.sh` **400**, `build-rootfs.sh` **399**, `layout.sh` **399**,
-`molniya-health-check.sh` **399**, `assemble-image.sh` **397**, `tle-updater.sh`
+files of the 2026-11-15 governor fix and the six of the `$HOME`-on-p7 fix
+re-measured then):
+`build-rootfs.sh` **399**, `layout.sh` **399**,
+`molniya-health-check.sh` **399**, `assemble-image.sh` 392, `tle-updater.sh`
 **398**, `run-latency-bench.sh` **396**, `molniya-boot-backend.sh` 386,
 `run-sdr-bench.sh` 386, `install-kernel.sh` 383, `02e-harden-flash.sh` 380,
 `rtl-power-heatmap.py` **377**, `01-build-kernel.sh` 352,
-`02c-sdr-userspace.sh` 352, `build-image.sh` 329, `build-bundle.sh` 266,
+`02c-sdr-userspace.sh` 352, `verify-image.sh` 390, `build-image.sh` 329, `build-bundle.sh` 266,
 `install-tle-timer.sh` 248, `10-molniya.sh` 242, `make-keys.sh` 238,
 `03a-gnuradio-stack.sh` 227, `inject-keyring.sh` 220, `thermal-state.sh` 207,
 `03b-satdump.sh` 205, `03c-sdrpp.sh` 205, `verify-rauc.sh` 199,
@@ -779,8 +780,8 @@ files of the 2026-11-15 governor fix re-measured then):
 `discontinuity_probe.py` 174, `package-kernel.sh` 168, `install.sh` 166,
 `provision-rauc.sh` 163, `gap_math.py` 158, `tle-files.sh` 119, `slot-identity.sh` 157,
 `install-governor.sh` 149, `03-satcom-stack.sh` 102, `rtl-loss.sh` 99,
-`02-post-install.sh` 97, `build-satcom.sh` 92, `verify-components.sh` 119,
-`provision-components.sh` 100, `governor-files.sh` 97, `molniya-mark-good.sh` 74,
+`02-post-install.sh` 97, `build-satcom.sh` 92, `verify-components.sh` 131, `verify-data.sh` 87,
+`provision-components.sh` 109, `seed-data.sh` 57, `governor-files.sh` 97, `molniya-mark-good.sh` 74,
 `atomic-write.sh` 69, `02d-locale-ru.sh` 64, `molniya-set-governor.sh` 61, `detect-config.sh` 56,
 `sdr-preflight.sh` 50, `02b-bench-tools.sh` 48, `governor.sh` 46,
 `__init__.py` 11.
@@ -2697,6 +2698,37 @@ boot partition).
     because it regenerates "for free" — and on ARM an FFT wisdom plan or similar
     is a 30–60 s first-run stall, so losing it every update would be a
     self-inflicted bug. Add entries here as the Phase 2 decoders land.
+
+  ✅ **`$HOME` is on p7 as of 2026-11-15** -- which carries the TLE elements, the
+  updater's cache and `authorized_keys` with it. Until then `/data/home` was created
+  and nothing used it: the login user's home lived in the slot root, so **the first
+  A/B update would have wiped the box's only ssh key**. `image/home.mount` binds
+  `/data/home` over `/home` (a bind, not `usermod -d`, so the account database and
+  every hardcoded `/home/...` path are untouched), installed and enabled per slot
+  by `provision-components.sh`. `image/seed-data.sh` copies slot A's provisioned
+  `/home` onto p7 with `--numeric-ids`; `image/verify-data.sh` asserts the copy is
+  there, owned by the uid the slot's `passwd` names, and byte-identical to the
+  slot's key. Both helpers are extractions: `assemble-image.sh` was at 397 and
+  `verify-image.sh` at 400. `WantedBy=` not `RequiredBy=`, so the unit adds no new
+  way to fail a boot -- but a dead p7 already stops boot, because `layout.sh`'s
+  fstab mounts `/data` without `nofail`. That is a separate decision.
+
+  **Verified on pi-server** against a bare slot root and a scratch p7, shellcheck
+  0.10.0 clean on all six files, `systemd-analyze verify` clean on the unit:
+  positive (27 + 10 PASS), and negative controls for a missing enable link, a
+  stale key on p7, a home chowned to root, a RAUC data-directory inside the slot
+  (each failing exactly the check aimed at it), seeding before the slot is
+  populated (refused, nothing written), and a uid the build host does not know
+  (4242 preserved). **Not yet verified:** that systemd actually binds it at boot.
+
+  Found on the way: `verify-image.sh` asserted `authorized_keys count = 2`, which
+  was the August keys file's own answer copied into the check. It now asserts at
+  least one key line.
+
+  ⬜ **Read-only root is still open.** It is the other half of the 2026-09-20
+  "separate capture data from the OS" proposal and the precondition for self-heal
+  item 4 below, and it is considerably larger: journald, `/var`, apt, ssh host
+  keys and NetworkManager state all need a home first.
 
 - ⏳ **Health check as the rollback trigger.** After booting the new slot, a
   systemd service runs checks and only then calls `rauc status mark-good`. Never

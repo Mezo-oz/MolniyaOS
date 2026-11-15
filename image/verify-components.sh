@@ -89,6 +89,17 @@ verify_tle() {
         "test -x '$root/usr/bin/curl' || test -x '$root/usr/bin/wget'"
 }
 
+# The bind that puts $HOME on p7. Its paths come from provision-components.sh
+# itself -- sourcing would run it, so they are read out of it with sed.
+verify_home_unit() {
+    local root="$1" unit wants
+    unit="$(sed -n 's/^HOME_UNIT="\(.*\)"$/\1/p' "$SELF_DIR/provision-components.sh")"
+    wants="$(sed -n 's/^HOME_WANTS="\(.*\)"$/\1/p' "$SELF_DIR/provision-components.sh")"
+    check_eq "home.mount mode" 644 "$(smode "$root$unit")"
+    check "home.mount binds /data/home on /home" sudo sh -c         "grep -qx 'What=/data/home' '$root$unit' && grep -qx 'Where=/home' '$root$unit'"
+    check_eq "home.mount enabled" "$unit" "$(slink "$root$wants")"
+}
+
 # Absent or masked both pass; a live ondemand.service would race the pin.
 verify_governor() {
     local root="$1" d shipped=""
@@ -114,6 +125,7 @@ main() {
     verify_health_check "$root"
     verify_tle "$root" "$user"
     verify_governor "$root"
+    verify_home_unit "$root"
 }
 
 main "$@"

@@ -304,18 +304,13 @@ provision_access() {
         sudo tee "$root/etc/ssh/sshd_config.d/10-molniya.conf" > /dev/null
 }
 
-# The data partition is shared by both slots and survives every update. Seeded
-# with the directories, not with content: what lives here is 4b's decision, and
-# creating the mount points now means the first boot does not have to.
+# The data partition is shared by both slots and survives every update,
+# including $HOME since 2026-11-15. Root A is still mounted here, which
+# seed-data.sh copies /home from. Extracted at 397/400; see seed-data.sh.
 seed_data() {
     step "seeding the data partition (p7)"
     mount_into "${LOOPDEV}p7" "$MNT/data"
-    sudo mkdir -p "$MNT/data/captures" "$MNT/data/tle" "$MNT/data/profiles" "$MNT/data/home"
-    # RAUC's data-directory (system.conf names /data/rauc). It holds the record
-    # of which slot is good, so it has to be the one thing an update cannot
-    # reach -- anywhere under / is inside a slot and gets replaced wholesale.
-    sudo mkdir -p "$MNT/data/rauc"
-    layout slotmap | sudo tee "$MNT/data/slots.conf" > /dev/null
+    "$SELF_DIR/seed-data.sh" "$MNT/data" "$MNT/rootA"
 }
 
 # Unpack the kernel package and hand back the directory holding its boot files.

@@ -282,7 +282,9 @@ verify_access() {
     check "authorized_keys present" sudo test -s "$keys"
     check_eq "authorized_keys mode" "600" "$(smode "$keys")"
     check_eq "authorized_keys owner" "1000:1000" "$(sowner "$keys")"
-    check_eq "authorized_keys count" "2" "$(sread "$keys" | grep -c '^[^#[:space:]]' || true)"
+    # At least one key line, not a count: "2" was the August keys file's own
+    # answer copied in, and it failed the next build seeded with four.
+    check "authorized_keys holds a key" sudo grep -q '^[^#[:space:]]' "$keys"
     check_eq ".ssh mode" "700" "$(smode "$dir/home/$LOGIN_USER/.ssh")"
 
     check_eq "sudoers drop-in mode" "440" "$(smode "$dir/etc/sudoers.d/010-molniya-nopasswd")"
@@ -339,23 +341,11 @@ verify_with() {
     done < <("$helper" "$@")
 }
 
+# Seeding, RAUC's data-directory and $HOME, in verify-data.sh since 2026-11-15.
 verify_data() {
     step "p7 — data"
-    local dir="$MNT/data" n datadir
-    mount_ro "${LOOPDEV}p7" "$dir"
-    n="$(sudo find "$dir" -mindepth 1 -maxdepth 1 -type d -not -name 'lost+found' | wc -l)"
-    check "data partition seeded" test "$n" -gt 0
-
-    # RAUC's data-directory holds the record of which slot is good. If it is
-    # anywhere under / it is inside a slot, and the update it is tracking
-    # destroys it. Read the path from system.conf rather than assuming it.
-    datadir="$(sread "$MNT/rootA/etc/rauc/system.conf" | sed -n 's/^data-directory=//p')"
-    check "system.conf names a data-directory" test -n "$datadir"
-    case "$datadir" in
-        /data/*) ok "rauc data-directory is on the data partition" ;;
-        *) bad "rauc data-directory '$datadir' is inside a slot" ;;
-    esac
-    check "and it exists on p7" sudo test -d "$dir/${datadir#/data/}"
+    mount_ro "${LOOPDEV}p7" "$MNT/data"
+    verify_with verify-data.sh "$MNT/data" "$MNT/rootA" "$LOGIN_USER"
 }
 
 # ----------------------------------------------------------------------------

@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ============================================================================
+# MolniyaOS — home directories live on the data partition
+# ============================================================================
+# Installed into both slots by image/provision-components.sh.
+#
+# WHY: every A/B update replaces the slot root wholesale, and /home was inside
+# it. The first update would have wiped the login user's authorized_keys,
+# ~/.predict (the TLE file predict reads) and everything else under $HOME --
+# silently, on a box that may have no console attached. ROADMAP 4d names $HOME
+# as part of the persistence boundary because the TLE timer derives its paths
+# from it; this is that boundary enforced.
+#
+# A BIND, NOT A usermod -d /data/home/<user>. The account database stays exactly
+# as the base and provision_access left it, so nothing that hardcodes /home/...
+# breaks, and the slot's own /home -- the build-time copy, keys included -- is
+# still underneath.
+#
+# WantedBy=, NOT RequiredBy=, so this unit adds no new way to fail a boot. It
+# does not make a dead p7 survivable on its own: layout.sh's fstab mounts /data
+# without nofail, so a missing p7 already stops boot before this runs. Whether
+# that should change is layout.sh's decision, not this file's.
+#
+# The unit's name is not a choice: systemd requires a mount unit to be named
+# after its mount point, and /home is home.mount.
+# ============================================================================
+
+[Unit]
+Description=MolniyaOS: /home on the data partition
+RequiresMountsFor=/data
+ConditionPathIsDirectory=/data/home
+Before=local-fs.target
+
+[Mount]
+What=/data/home
+Where=/home
+Type=none
+Options=bind
+
+[Install]
+WantedBy=local-fs.target

@@ -16,6 +16,10 @@
 #     the bench installer uses, so the two cannot disagree about the layout
 #   - the performance governor, from automation/governor-files.sh, enabled
 #     unconditionally: it is a property of the hardware, not of a user
+#   - home.mount, which binds /data/home over /home so $HOME survives an A/B
+#     update. Image-only: a bench box has no p7, so there is no manifest for a
+#     second installer to share, and verify-components.sh names the same two
+#     paths through HOME_UNIT below rather than a copy of them
 #
 # ONDEMAND IS MASKED ONLY IF THE BASE SHIPS IT. install-governor.sh does the
 # same on a live box, for the same reason: Debian's ondemand.service exists to
@@ -49,6 +53,8 @@ set -euo pipefail
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TLE_FILES="$SELF_DIR/../automation/tle-files.sh"
 GOV_FILES="$SELF_DIR/../automation/governor-files.sh"
+HOME_UNIT="/etc/systemd/system/home.mount"
+HOME_WANTS="/etc/systemd/system/local-fs.target.wants/home.mount"
 
 die()  { echo "provision-components.sh: $*" >&2; exit 1; }
 note() { echo "  $*" >&2; }
@@ -89,11 +95,14 @@ main() {
     sudo "$TLE_FILES" install "$root" "$user"
     sudo "$GOV_FILES" install "$root"
     mask_ondemand "$root"
+    sudo install -D -m 0644 -o root -g root "$SELF_DIR/home.mount" "$root$HOME_UNIT"
+    sudo mkdir -p "$root$(dirname "$HOME_WANTS")"
+    sudo ln -sfn "$HOME_UNIT" "$root$HOME_WANTS"
 
     if [ -n "$user" ]; then
-        note "components: health check, governor, TLE refresh enabled for $user"
+        note "components: health check, governor, /home on p7, TLE refresh enabled for $user"
     else
-        note "components: health check, governor, TLE refresh units (no instance -- no login user)"
+        note "components: health check, governor, /home on p7, TLE refresh units (no instance -- no login user)"
     fi
 }
 
