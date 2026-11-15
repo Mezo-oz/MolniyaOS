@@ -14,8 +14,8 @@
 # verify-image.sh renders and tallies. READ-ONLY: it is handed an
 # already-mounted read-only tree and opens nothing for writing.
 #
-# THE TLE CHECKS CARRY NO COPY OF THE LAYOUT. They iterate the manifest
-# automation/tle-files.sh prints, which is the same table the installer
+# THE TLE AND GOVERNOR CHECKS CARRY NO COPY OF THE LAYOUT. They iterate the
+# manifests automation/{tle,governor}-files.sh print, the same tables the installer
 # installed from -- a check holding its own list of paths is a check that
 # agrees with itself when the layout moves. Links are checked as their literal
 # target AND as resolving inside the slot: a link written with the build host's
@@ -30,6 +30,7 @@ set -euo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TLE_FILES="$SELF_DIR/../automation/tle-files.sh"
+GOV_FILES="$SELF_DIR/../automation/governor-files.sh"
 
 die() { echo "verify-components.sh: $*" >&2; exit 1; }
 
@@ -60,23 +61,47 @@ verify_health_check() {
     check "slot-identity installed" sudo test -x "$dir/slot-identity.sh"
 }
 
-verify_tle() {
-    local root="$1" user="$2" kind path arg
-    while IFS=$'\t' read -r kind path arg; do
+# Takes the command that prints the manifest, so each caller passes its own
+# helper's arguments. The fourth column, where present, is a source name -- an
+# install detail, read and discarded here.
+verify_manifest() {
+    local label="$1" root="$2"; shift 2
+    local kind path arg
+    while IFS=$'\t' read -r kind path arg _; do
         case "$kind" in
             d | f)
-                check_eq "tle: $path mode" "$arg" "$(smode "$root$path")"
-                check_eq "tle: $path owner" "0:0" "$(sowner "$root$path")" ;;
+                check_eq "$label: $path mode" "$arg" "$(smode "$root$path")"
+                check_eq "$label: $path owner" "0:0" "$(sowner "$root$path")" ;;
             l)
-                check_eq "tle: $path -> $arg" "$arg" "$(slink "$root$path")"
-                check "tle: $arg exists in the slot" sudo test -e "$root$arg" ;;
-            *)  fail "tle-files.sh emitted an unreadable line: $kind" ;;
+                check_eq "$label: $path -> $arg" "$arg" "$(slink "$root$path")"
+                check "$label: $arg exists in the slot" sudo test -e "$root$arg" ;;
+            *)  fail "$label manifest emitted an unreadable line: $kind" ;;
         esac
-    done < <("$TLE_FILES" list "$user")
+    done < <("$@")
+}
+
+verify_tle() {
+    local root="$1" user="$2"
+    verify_manifest tle "$root" "$TLE_FILES" list "$user"
 
     # The updater's one runtime dependency outside coreutils. It takes either.
     check "tle: curl or wget present" sudo sh -c \
         "test -x '$root/usr/bin/curl' || test -x '$root/usr/bin/wget'"
+}
+
+# Absent or masked both pass; a live ondemand.service would race the pin.
+verify_governor() {
+    local root="$1" d shipped=""
+    verify_manifest governor "$root" "$GOV_FILES" list
+    for d in usr/lib/systemd/system lib/systemd/system; do
+        sudo test -e "$root/$d/ondemand.service" && shipped=1
+    done
+    if [ -z "$shipped" ]; then
+        pass "governor: base ships no ondemand.service"
+    else
+        check_eq "governor: ondemand.service masked" /dev/null \
+            "$(slink "$root/etc/systemd/system/ondemand.service")"
+    fi
 }
 
 main() {
@@ -84,9 +109,11 @@ main() {
     local root="$1" user="$2"
     [ -d "$root" ] || die "$root: not a directory"
     [ -x "$TLE_FILES" ] || die "tle-files.sh not found at $TLE_FILES"
+    [ -x "$GOV_FILES" ] || die "governor-files.sh not found at $GOV_FILES"
 
     verify_health_check "$root"
     verify_tle "$root" "$user"
+    verify_governor "$root"
 }
 
 main "$@"

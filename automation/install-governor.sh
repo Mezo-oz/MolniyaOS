@@ -33,10 +33,9 @@ set -euo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-HELPER_SRC="$SELF_DIR/molniya-set-governor.sh"
-HELPER_DST="/usr/local/sbin/molniya-set-governor"
-UNIT_SRC="$SELF_DIR/molniya-governor.service"
-UNIT_DST="/etc/systemd/system/molniya-governor.service"
+# The file layout lives in governor-files.sh, because the image build installs
+# the same files into every slot and the two must not disagree.
+GOV_FILES="$SELF_DIR/governor-files.sh"
 UNIT_NAME="molniya-governor.service"
 CONFLICTING_UNIT="ondemand.service"
 
@@ -61,7 +60,7 @@ uninstall() {
     if systemctl list-unit-files "$UNIT_NAME" > /dev/null 2>&1; then
         systemctl disable --now "$UNIT_NAME" 2>/dev/null || true
     fi
-    rm -f "$UNIT_DST" "$HELPER_DST"
+    bash "$GOV_FILES" remove /
     systemctl daemon-reload
 
     # Only unmask what we would have masked. Unmasking a unit the user masked
@@ -87,14 +86,13 @@ if [ "${1:-}" != "" ]; then
     exit 1
 fi
 
-for f in "$HELPER_SRC" "$UNIT_SRC"; do
-    if [ ! -f "$f" ]; then
-        echo "ERROR: missing $f" >&2
-        echo "       Run this from a clone of the repo; it installs the two" >&2
-        echo "       files that sit beside it." >&2
-        exit 1
-    fi
-done
+# governor-files.sh checks its own sources before writing anything; this checks
+# only that the manifest itself is here.
+if [ ! -f "$GOV_FILES" ]; then
+    echo "ERROR: missing $GOV_FILES" >&2
+    echo "       Run this from a clone of the repo." >&2
+    exit 1
+fi
 
 echo "============================================"
 echo "  MolniyaOS Performance Governor"
@@ -103,11 +101,11 @@ echo ""
 echo "  Governor before: $(read_governor)"
 echo ""
 
-echo "[1/4] Installing $HELPER_DST"
-install -m 0755 -o root -g root "$HELPER_SRC" "$HELPER_DST"
+echo "[1/4] Installing the helper and the unit"
+bash "$GOV_FILES" install /
 
-echo "[2/4] Installing $UNIT_DST"
-install -m 0644 -o root -g root "$UNIT_SRC" "$UNIT_DST"
+echo "[2/4] Installed:"
+bash "$GOV_FILES" list | cut -f2 | sed 's/^/       /'
 
 echo "[3/4] Handling $CONFLICTING_UNIT"
 if systemctl list-unit-files "$CONFLICTING_UNIT" > /dev/null 2>&1 \

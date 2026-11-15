@@ -738,15 +738,34 @@ reinstalled on the new code: timer enabled + active, first run exit 0, and
 Whether the stock base ships curl or wget is now a check rather than an
 assumption. The cached rootfs on pi-server is a stub, so it could not be read.
 
-**Same gap, not fixed:** `molniya-governor.service` is not installed by the image
-either. The health check does not gate on it, so nothing fails. When it lands,
-it belongs in `provision-components.sh`.
+**Same gap, FIXED 2026-11-15:** `molniya-governor.service` was not installed by
+the image either, so the README's "pins the Cortex-A76 at full clock" held on
+pi-server and on no card flashed from an image. `automation/governor-files.sh`
+is now its manifest, same shape as `tle-files.sh`, read by `install-governor.sh`,
+`provision-components.sh` and `verify-components.sh`. The image enables the unit
+unconditionally (it is a property of the hardware, not of a login user), and
+masks `ondemand.service` only if the base ships it -- the 2026-06-18 trixie base
+does not, so that branch is insurance against a base bump. `verify-components.sh`'s
+TLE loop became `verify_manifest`, which both manifests feed.
+
+**Verified on pi-server**, shellcheck 0.10.0 clean on all four files. Against a
+bare slot root: positive (24/24 PASS -- the 17 TLE checks unchanged, plus 7), a
+base that ships `ondemand.service` (masked, 24/24), and negative controls for an
+unmasked `ondemand.service`, a missing enable link and a wrong helper mode (each
+exactly 1 FAIL, on the right check), a missing source (refused before writing a
+byte), a non-root caller (refused) and `remove` (nothing left). Live: the
+pre-rename `kosmos-governor.service` still installed on pi-server since 2026-07-30
+was removed and replaced through the new installer; with the CPU forced to
+`ondemand`, restarting the unit put all four cores back on `performance`; an
+uninstall left nothing and a reinstall came back enabled and active.
+**Not yet verified:** that it survives a reboot, and a full image build with it in.
 
 **Current headroom** (re-measured 2026-09-27, when Test 2's own growth fired the
 trigger; now **exhaustive** over `git ls-files '*.sh' '*.py'`, the gate's own scope,
 rather than a hand-picked subset that quietly omitted the `gr-molniya` modules;
 the three TLE files touched by the 2026-10-06 standard-9 fix re-measured then, and
-the four files of the 2026-10-20 extraction re-measured then):
+the four files of the 2026-10-20 extraction re-measured then, and the four
+files of the 2026-11-15 governor fix re-measured then):
 `verify-image.sh` **400**, `build-rootfs.sh` **399**, `layout.sh` **399**,
 `molniya-health-check.sh` **399**, `assemble-image.sh` **397**, `tle-updater.sh`
 **398**, `run-latency-bench.sh` **396**, `molniya-boot-backend.sh` 386,
@@ -759,9 +778,9 @@ the four files of the 2026-10-20 extraction re-measured then):
 `02a-verify-kernel.sh` 198, `fetch-base.sh` 194, `test_gap_math.py` 185,
 `discontinuity_probe.py` 174, `package-kernel.sh` 168, `install.sh` 166,
 `provision-rauc.sh` 163, `gap_math.py` 158, `tle-files.sh` 119, `slot-identity.sh` 157,
-`install-governor.sh` 151, `03-satcom-stack.sh` 102, `rtl-loss.sh` 99,
-`02-post-install.sh` 97, `build-satcom.sh` 92, `verify-components.sh` 92,
-`provision-components.sh` 75, `molniya-mark-good.sh` 74,
+`install-governor.sh` 149, `03-satcom-stack.sh` 102, `rtl-loss.sh` 99,
+`02-post-install.sh` 97, `build-satcom.sh` 92, `verify-components.sh` 119,
+`provision-components.sh` 100, `governor-files.sh` 97, `molniya-mark-good.sh` 74,
 `atomic-write.sh` 69, `02d-locale-ru.sh` 64, `molniya-set-governor.sh` 61, `detect-config.sh` 56,
 `sdr-preflight.sh` 50, `02b-bench-tools.sh` 48, `governor.sh` 46,
 `__init__.py` 11.

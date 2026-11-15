@@ -104,6 +104,7 @@ in the kernel tarball, because none of it is needed to get the kernel running.
 | `automation/install-governor.sh` | Pi | Installs the boot-time performance-governor unit |
 | `automation/molniya-governor.service` | Pi | The unit itself |
 | `automation/molniya-set-governor.sh` | Pi | The governor write, installed to `/usr/local/sbin` |
+| `automation/governor-files.sh` | Pi | The governor's file layout, read by the installer, the image build and its check |
 | `gr-molniya/` | Pi | Out-of-tree GNU Radio blocks. Scaffold — see its README |
 | `config/frequencies.md` | — | Frequency cheatsheet |
 | `config/antennas.md` | — | Which antenna for which mission |
