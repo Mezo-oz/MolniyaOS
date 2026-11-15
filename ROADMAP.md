@@ -4564,6 +4564,36 @@ of the repo on the Pi.
     too little traffic to compare), no bias-tee test, which needs the antenna
     disconnected first, and no sample-loss run at the Test 2 rates. Raw CSVs sit
     in `/tmp/libcmp` on pi-server until its next reboot.
+
+    ⚠️ **The daytime ADS-B decode comparison ran 2026-09-13 and was
+    INCONCLUSIVE.** Two passes, four gains, two-minute slots, libraries
+    alternated; raws and `summary.tsv` in `~/adsb-libcmp-2026-09-13` on pi-server.
+    Every usable message passed CRC and nothing shows Debian failing to decode --
+    but with 1-7 aircraft per slot, one aircraft leaving range swung a count by
+    up to 1000x between passes at the same library and gain, as large as any gap
+    between the libraries. And it matched gains on the `-g` number, which at
+    1090 MHz puts the fork 2-6 dB of noise power hotter. **The fork stays.**
+
+    **The redesigned test is `benchmarks/adsb-libcmp.sh` + `adsb_libcmp.py`
+    (2026-11-15), not yet run for real.** It calibrates both libraries over the
+    gain table in the same sitting and gain-matches on **noise power**, refusing
+    any match worse than 1 dB; then alternates 20 s slots for ~50 min; the
+    analysis scores each slot per aircraft against its two neighbours, so traffic
+    trends cancel, and bootstraps a Debian/fork rate ratio with a fixed seed.
+    Checked against synthetic data with known ratios (1.00, 0.97, 0.70, 0.88, and
+    sparse/short runs): it recovered each to within 1.5 points and returned the
+    verdict the rule predicts, including INCONCLUSIVE for 0.88 against a 10%
+    floor. A live smoke run on pi-server found three things now handled: the fork
+    at 38.6 has **no Debian equal** (1.8 dB above Debian's maximum, so the default
+    reference is now fork@28.0 ↔ Debian@48.0, 0.2 dB apart); a slot can open the
+    dongle and receive zero samples; and a run overlapping an image build dropped
+    samples in four of twelve slots -- do not overlap them.
+
+    ⬜ **Owed before the real run, by Mezooz: the tolerance.** The verdict is
+    MATCH if the 95% interval's lower bound is at least `1 - tolerance`. The
+    script defaults to 10%, but the number is a decision to make **before** the
+    data exists, and it is recorded here when made. Then pick a busy hour; the
+    dongle is already on pi-server.
 12. First NOAA APT capture using SatDump
 13. ~~**A/B pre-checks (no purchase, no reboot required)** — on pi-server~~
     ✅ **both run 2026-08-23**, against the running MolniyaOS kernel

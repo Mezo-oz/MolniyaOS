@@ -43,8 +43,9 @@ SEED = 1090
 
 
 def read_slots(path):
-    """Return slots in order as (lib, {icao: count})."""
+    """Return slots in order as (lib, {icao: count}), and per-lib health counts."""
     slots = []
+    health = {}
     with open(path, encoding="utf-8") as f:
         header = f.readline().rstrip("\n").split("\t")
         col = {name: i for i, name in enumerate(header)}
@@ -55,8 +56,17 @@ def read_slots(path):
             for pair in pairs:
                 icao, _, n = pair.partition("=")
                 counts[icao] = int(n)
-            slots.append((fields[col["lib"]], counts))
-    return slots
+            lib = fields[col["lib"]]
+            h = health.setdefault(lib, {"slots": 0, "dropping": 0, "no_stats": 0})
+            h["slots"] += 1
+            # Noise power is the one statistic every capture prints; dump1090
+            # writes "-----" for it when no samples arrived at all.
+            if fields[col["noise_dbfs"]] in ("", "-----"):
+                h["no_stats"] += 1
+            elif int(fields[col["dropped"]] or 0) > 0:
+                h["dropping"] += 1
+            slots.append((lib, counts))
+    return slots, health
 
 
 def slot_scores(slots):
@@ -103,7 +113,13 @@ def main():
                     help="largest acceptable shortfall for Debian, as a fraction (default 0.10)")
     args = ap.parse_args()
 
-    scores = slot_scores(read_slots(args.slots_tsv))
+    slots, health = read_slots(args.slots_tsv)
+    # Printed, not gated: a dropped buffer costs both libraries alike unless it
+    # clusters on one, and that is for the reader to see, not for a threshold.
+    for lib, h in sorted(health.items()):
+        print(f"{lib}: {h['slots']} slots, {h['dropping']} dropped samples, "
+              f"{h['no_stats']} produced no statistics")
+    scores = slot_scores(slots)
     n_deb, n_fork = len(scores["deb"]), len(scores["fork"])
     print(f"scored slots: deb {n_deb}, fork {n_fork} (need {MIN_SLOTS} each)")
     if min(n_deb, n_fork) < MIN_SLOTS:

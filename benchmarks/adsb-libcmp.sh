@@ -27,6 +27,13 @@
 # BOUNDED THROUGHOUT (standard 4): the wait for the start time is capped at
 # 14 h, every dump1090 runs under timeout, and the slot loop has a fixed count.
 #
+# --fork-gain defaults to 28.0 because the 2026-11-15 calibration matched it to
+# Debian@48.0 within 0.2 dB; higher fork gains have no Debian equal. The match
+# is re-measured on every run regardless, and refused beyond MAX_GAP_DB.
+#
+# Do not run it during an image build: the smoke run overlapped one and dropped
+# samples in four of twelve slots.
+#
 # Raw slot logs are kept gzipped: they are the evidence, and the September
 # reanalysis was only possible because its raws had been kept.
 # ============================================================================
@@ -41,6 +48,10 @@ MAX_WAIT_S=50400
 # dump1090's R828D gain table, the part an outdoor 1090 antenna uses.
 CAL_GAINS=(20.7 25.4 28.0 29.7 32.8 33.8 36.4 37.2 38.6 40.2 42.1 43.4 43.9 44.5 48.0 49.6)
 CAL_SLOT_S=10
+# A match worse than this is not a match. The 2026-11-15 smoke run is why it
+# exists: the fork at 38.6 sat 1.8 dB above anything Debian's gain table reaches,
+# and nearest-wins would have compared two different receivers again.
+MAX_GAP_DB=1.0
 
 die()    { echo "adsb-libcmp.sh: $*" >&2; exit 1; }
 status() { echo "$* ($(date -u +%FT%TZ))" > "$OUT/status"; }
@@ -75,7 +86,8 @@ calibrate() {
     done
 }
 
-# Debian's gain whose noise power is nearest the fork's at the reference gain.
+# Debian's gain whose noise power is nearest the fork's at the reference gain,
+# and the gap in dB, tab-separated.
 match_gain() {
     local fork_gain="$1"
     awk -F'\t' -v fg="$fork_gain" '
@@ -86,7 +98,7 @@ match_gain() {
             for (g in n) { d = n[g] - ref; if (d < 0) d = -d
                            if (best == "" || d < bd) { best = g; bd = d } }
             if (best == "") exit 1
-            print best
+            printf "%s\t%.1f\n", best, bd
         }' "$OUT/calibration.tsv"
 }
 
@@ -111,7 +123,7 @@ wait_for() {
 }
 
 main() {
-    local start="" fork_gain="38.6" minutes=50 slot=20
+    local start="" fork_gain="28.0" minutes=50 slot=20
     while [ $# -gt 0 ]; do
         case "$1" in
             --start)     start="${2:-}"; shift 2 ;;
@@ -131,8 +143,15 @@ main() {
     status "calibrating"
     calibrate
     local deb_gain
-    deb_gain="$(match_gain "$fork_gain")" || die "calibration produced no usable noise figures"
-    printf 'fork_gain\t%s\ndeb_gain\t%s\nslot_s\t%s\n' "$fork_gain" "$deb_gain" "$slot" > "$OUT/params.tsv"
+    local match gap
+    match="$(match_gain "$fork_gain")" || die "calibration produced no usable noise figures"
+    deb_gain="$(cut -f1 <<< "$match")"; gap="$(cut -f2 <<< "$match")"
+    printf 'fork_gain\t%s\ndeb_gain\t%s\ngap_db\t%s\nslot_s\t%s\n' \
+        "$fork_gain" "$deb_gain" "$gap" "$slot" > "$OUT/params.tsv"
+    if awk -v g="$gap" -v m="$MAX_GAP_DB" 'BEGIN { exit !(g > m) }'; then
+        status "refused: no Debian gain within $MAX_GAP_DB dB of fork@$fork_gain (best $deb_gain at $gap dB) -- see calibration.tsv, pick a lower --fork-gain"
+        exit 1
+    fi
 
     # Even, so both libraries get the same number of slots.
     local n=$(( minutes * 60 / (slot + 2) / 2 * 2 )) i lib gain t0 log
@@ -144,6 +163,9 @@ main() {
         capture "$lib" "$gain" "$slot" "$log"
         summarise_slot "$i" "$lib" "$gain" "$t0" "$log" >> "$OUT/slots.tsv"
         gzip -f "$log"
+        # The dongle needs a moment after close; back-to-back opens produced a
+        # slot with no statistics at all in the smoke run.
+        sleep 1
     done
     status "done: $n slots"
 }
