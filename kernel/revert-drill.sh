@@ -88,7 +88,9 @@ EOF
     echo tryboot > "$STATE/phase"
     log "START running $(uname -r); rebooting into tryboot.txt (stock)"
     sync
-    systemctl reboot "0 tryboot"
+    # Not `systemctl reboot "0 tryboot"`: trixie's systemctl refuses a positional
+    # argument ("Too many arguments"), found on the first drill, 2026-11-16.
+    systemctl reboot --reboot-argument="0 tryboot"
 }
 
 disarm() {

@@ -220,7 +220,7 @@ rtl_test -t
 
 ```bash
 uname -r                    # should contain "molniya"
-cat /sys/kernel/realtime    # should print 1
+uname -v                    # should contain PREEMPT_RT
 cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor   # performance
 ```
 

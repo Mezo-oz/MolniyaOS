@@ -748,9 +748,29 @@ Tested on the failed rootfs itself: with the guard, `dpkg --configure -a`
 completes; removed, the real binary is back byte-identical and `dpkg --verify`
 is clean. Pinning the chroot's apt is not done.
 
-**Not yet verified:** a full image build with `verify-image.sh` run over it.
-Whether the stock base ships curl or wget is now a check rather than an
-assumption. The cached rootfs on pi-server is a stub, so it could not be read.
+✅ **Full image build + `verify-image.sh --release`: PASS, 195 checks, no
+failures, 2026-11-16** -- the first verify of an image carrying the TLE units,
+the governor and `$HOME` on p7. raw sha256 `ae7b6601542aab80...dfa9`. Every
+check added since 2026-10-20 ran in it: governor (7 per slot), `home.mount` (3
+per slot), `verify-data.sh` (6), TLE manifest. **The stock base ships curl or
+wget** -- the open question above, now answered by the check. Structural only:
+this image has not been booted.
+
+Three things it took to get there, each worth knowing before the next build:
+- **`build-image.sh`'s default kernel directory `~/molniya` does not exist on
+  pi-server**; the tarball is in `~/MolniyaOS/molniya/`, so
+  `MOLNIYA_KERNEL_TARBALL` has to be set.
+- **pi-server's 29 GB card cannot hold the base image, the rootfs cache and the
+  assembled image at once.** Stage 3's precheck refused at 10128 of ~11174 MB
+  needed. The decompressed base (re-derivable from its checksummed `.xz`) was
+  deleted and stages 3-4 run by hand, because `build-image.sh` re-runs stage 1
+  every time and would re-decompress it. The precheck did its job; the disk
+  budget is the problem, and it will recur.
+- **There is no RAUC CA yet**, and `provision-rauc.sh` correctly refuses to build
+  an image that would reject every bundle. This build used a throwaway CA
+  (`O=THROWAWAY key destroyed 2026-11-15`), its private key shredded on creation
+  -- so this image can never accept a bundle and is a verification artifact, not
+  a release. ⬜ **The real CA is Mezooz's, on offline media** (`make-keys.sh ca`).
 
 **Same gap, FIXED 2026-11-15:** `molniya-governor.service` was not installed by
 the image either, so the README's "pins the Cortex-A76 at full clock" held on
@@ -772,7 +792,8 @@ pre-rename `kosmos-governor.service` still installed on pi-server since 2026-07-
 was removed and replaced through the new installer; with the CPU forced to
 `ondemand`, restarting the unit put all four cores back on `performance`; an
 uninstall left nothing and a reinstall came back enabled and active.
-**Not yet verified:** that it survives a reboot, and a full image build with it in.
+✅ **Survived a reboot 2026-11-16** (onto `6.12.98-kosmos+`): unit active, all four
+cores `performance`, no failed units. And it is in the verified image above.
 
 **Current headroom** (re-measured 2026-09-27, when Test 2's own growth fired the
 trigger; now **exhaustive** over `git ls-files '*.sh' '*.py'`, the gate's own scope,
@@ -791,7 +812,7 @@ re-measured then):
 `03a-gnuradio-stack.sh` 227, `inject-keyring.sh` 220, `thermal-state.sh` 207,
 `03b-satdump.sh` 205, `03c-sdrpp.sh` 205, `verify-rauc.sh` 199,
 `02a-verify-kernel.sh` 198, `fetch-base.sh` 194, `test_gap_math.py` 185,
-`discontinuity_probe.py` 174, `package-kernel.sh` 168, `test-install-revert.sh` 154, `install.sh` 166,
+`discontinuity_probe.py` 174, `package-kernel.sh` 168, `test-install-revert.sh` 154, `revert-drill.sh` 141, `install.sh` 166,
 `provision-rauc.sh` 163, `chroot-guards.sh` 88, `gap_math.py` 158, `tle-files.sh` 119, `slot-identity.sh` 157,
 `install-governor.sh` 149, `03-satcom-stack.sh` 102, `adsb-libcmp.sh` 173, `adsb_libcmp.py` 140, `rtl-loss.sh` 99,
 `02-post-install.sh` 97, `build-satcom.sh` 92, `verify-components.sh` 131, `verify-data.sh` 87,
@@ -1207,7 +1228,27 @@ isolated before any published number is generated.
   the last directive, and sed's whole-line delete cannot take it back. Harmless,
   since Pi OS's file ends in a newline, and now stated in the installer and held
   to exactly one byte by the test. What CI cannot show is that the firmware
-  honours `os_prefix` or that stock boots: that is the hardware drill, still open.
+  honours `os_prefix` or that stock boots: that is the hardware drill --
+
+  ✅ **which passed on pi-server 2026-11-16.** `kernel/revert-drill.sh start`
+  writes `config.txt` minus the custom-kernel block to `tryboot.txt` and reboots
+  with `tryboot`, which the firmware honours for exactly one boot; a transient
+  unit records that boot, removes `tryboot.txt` and reboots normally, then records
+  the return and disarms. `config.txt` is never touched, so the way back is the
+  firmware's default: a hung stock boot is fixed by a power cycle. Result:
+  `PASS stock boot: 6.12.62+rpt-rpi-2712 (tryboot=1)`, then `PASS returned:
+  6.12.98-kosmos+ (tryboot=0)`, nothing left behind. (The script first landed,
+  untested, inside `c544fa3`; the first live run found trixie's `systemctl
+  reboot` refuses a positional argument, now `--reboot-argument`.) Not yet on a
+  schedule: an unannounced reboot would corrupt a benchmark run, so a timer
+  wants a benchmark lock first.
+
+  ⚠️ **Two pi-server facts the drill surfaced.** `config.txt` had been re-armed
+  2026-09-08 04:47Z and never rebooted, so the box ran stock for two months while
+  armed for the RT kernel; the drill refuses to start in that state. And its block
+  carries **pre-rename `KosmOS` markers**, which the installer's printed revert
+  command (`MolniyaOS` only) silently does not match. The drill strips both; a
+  reinstall with the current installer would retire the old markers.
 - [x] **Settle the tickless claim** — *done, `43d8368`.* `nohz_full` and
   `rcu_nocbs` are appended to the MolniyaOS command line, default CPUs 1-3 with
   CPU 0 left as housekeeping. Configurable via `NOHZ_FULL_CPUS`, which the
